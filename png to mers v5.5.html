@@ -1,0 +1,2898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MERS Texture Lab – Clean Rebuild</title>
+<style>
+  :root {
+    --bg: #0f1120;
+    --bg-panel: #161829;
+    --bg-alt: #1d2040;
+    --text: #e6e7ef;
+    --muted: #a3a7c2;
+    --primary: #8b5cf6;   /* violet */
+    --accent: #22d3ee;    /* cyan */
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --ok: #10b981;
+    --border: #2a2d4b;
+    --chip: #242743;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+    background: linear-gradient(135deg, #241b4b 0%, #0f1120 50%, #111827 100%);
+    color: var(--text);
+  }
+  header {
+    padding: 18px 22px;
+    position: sticky; top: 0; z-index: 10;
+    backdrop-filter: blur(12px);
+    background: linear-gradient(90deg, rgba(13,14,30,.7), rgba(21,24,54,.7));
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: .2px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .pill { padding: 6px 10px; border-radius: 999px; background: var(--chip); border: 1px solid var(--border); font-size: 12px; }
+
+  .wrap { display: grid; grid-template-columns: minmax(440px, 520px) 1fr; gap: 16px; padding: 16px; }
+  .left { height: calc(100vh - 88px); overflow: auto; padding-right: 4px; }
+  .panel { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+  .panel h3 { margin: 0 0 10px; font-size: 14px; letter-spacing: .4px; color: var(--muted); }
+  .panel + .panel { margin-top: 12px; }
+
+  .upload { border: 1px dashed var(--border); background: var(--bg-alt); padding: 16px; border-radius: 12px; text-align: center; }
+  .upload:hover { border-color: var(--primary); }
+  .upload input { display: none; }
+  .btn { cursor: pointer; border: 1px solid var(--border); background: #1a1d37; color: var(--text); border-radius: 10px; padding: 8px 12px; font-size: 13px; }
+  .btn.primary { background: linear-gradient(90deg, #7c3aed, #06b6d4); border: none; }
+  .btn.ghost { background: transparent; }
+  .btn.small { padding: 6px 10px; font-size: 12px; }
+  .btn.icon { width: 32px; height: 32px; display: grid; place-items: center; padding: 0; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .group { display: grid; gap: 9px; }
+  .slider-row { display: grid; grid-template-columns: 120px 1fr 64px; align-items: center; gap: 10px; }
+  .slider-row-anim { display: grid; grid-template-columns: 120px 1fr 80px 64px; align-items: center; gap: 10px; }
+  .slider-row label { color: var(--muted); font-size: 12px; }
+  input[type=range] { width: 100%; accent-color: var(--primary); }
+  .switch { display: inline-flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+
+  .curve { width: 100%; height: 140px; border-radius: 10px; background: #0f1228; border: 1px solid var(--border); display: block; cursor: crosshair; }
+
+  .right {
+    position: sticky; top: 88px; align-self: start; display: grid; grid-template-rows: auto 1fr auto; gap: 12px;
+  }
+  .previewShell { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .canvasWrap { position: relative; background: repeating-conic-gradient(#2a2d4b 0 25%, #1c1f35 0 50%) 50%/20px 20px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .canvasHeader { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,.25); }
+  .canvasHeader .title { font-size: 12px; color: var(--muted); }
+  canvas.preview { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+  .toolbar { display: flex; gap: 8px; align-items: center; }
+  .chip { padding: 4px 8px; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); background: var(--chip); color: var(--muted); }
+
+  .strip { display: grid; grid-template-columns: repeat(5, auto); gap: 6px; }
+  .strip .btn { padding: 6px 8px; font-size: 12px; }
+
+  .histogram { position: fixed; bottom: 18px; right: 18px; width: 420px; height: 260px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 14px; display: none; flex-direction: column; }
+  .histogram.dragging { opacity: .9; }
+  .histTop { padding: 8px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+  .histTop .title { font-size: 12px; color: var(--muted); }
+  #histCanvas { width: 100%; height: 100%; display: block; }
+  .histBtn { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 4px 8px; cursor: pointer; }
+  .fab { position: fixed; bottom: 18px; right: 18px; width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, #06b6d4, #7c3aed); border: none; color: white; font-size: 18px; display: grid; place-items: center; cursor: pointer; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .curvesGrid { grid-template-columns: 1fr !important; gap: 16px; }
+  .mt { margin-top: 10px; }
+  .muted { color: var(--muted); }
+
+  .footerRow { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; }
+
+  /* small screens */
+  @media (max-width: 1100px) {
+    .wrap { grid-template-columns: 1fr; }
+    .right { position: static; }
+    .previewShell { grid-template-columns: 1fr; }
+  }
+
+  /* Lock preview row height so tall reference TGAs don't expand layout */
+  #wrapOut, #wrapRef { height: 384px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>MERS Texture Lab</h1>
+    <span class="sub">PNG ⇢ MERS TGA (Metalness • Emissive • Roughness • SSS)</span>
+    <span class="pill">Dark UI • Zoom/Pan • Curves • Histogram • Noise • Animation</span>
+    <div style="flex:1"></div>
+    <button class="btn small" id="darkToggle">🌙 Dark mode</button>
+  </header>
+
+  <div class="wrap">
+    <!-- LEFT -->
+    <div class="left">
+      <div class="panel upload">
+        <h3>Texture input</h3>
+        <p class="muted">Drop a PNG/TGA here or pick a file.</p>
+        <div class="row mt">
+          <button class="btn" id="pickTex">Choose PNG/TGA</button>
+          <input id="fileTex" type="file" accept=".png,.tga" />
+          <span id="texName" class="chip">No texture</span>
+        </div>
+        <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
+        <h3>Reference MERS (optional)</h3>
+        <p class="muted">Load a .tga MERS file to preview beside your result or drive per-pixel mapping.</p>
+        <div class="row mt">
+          <button class="btn" id="pickRef">Choose TGA</button>
+          <input id="fileRef" type="file" accept=".tga" />
+          <span id="refName" class="chip">No reference</span>
+        </div>
+        <div class="row mt">
+          <label class="switch"><input id="useRefMap" type="checkbox"> Use reference as per-pixel map</label>
+          <select id="refMatchLeft" class="btn refMatchSel">
+            <option value="color">Match colors</option>
+            <option value="pixel">Match by pixel</option>
+          </select>
+          <label class="switch"><input id="invertAll" type="checkbox"> Invert all channels</label>
+          <label class="switch"><input id="grayscaleMode" type="checkbox"> Grayscale channel preview</label>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Curves</h3>
+        <div class="row mt">
+          <button class="btn" id="resetSliders">Reset sliders</button>
+          <button class="btn ghost" id="resetCurves">Reset curves</button>
+        </div>
+        <div class="grid-2 curvesGrid">
+          <div>
+            <div class="row" style="justify-content:space-between"><span class="chip">Red • Metalness</span><span class="muted">click to add • drag • right‑click to delete</span></div>
+            <div class="group" id="groupR"></div>
+            <canvas id="curveR" class="curve" width="520" height="160"></canvas>
+          </div>
+          <div>
+            <div class="row" style="justify-content:space-between"><span class="chip">Green • Emissive</span><span class="muted">click to add • drag • right‑click to delete</span></div>
+            <div class="group" id="groupG"></div>
+            <canvas id="curveG" class="curve" width="520" height="160"></canvas>
+          </div>
+          <div>
+            <div class="row" style="justify-content:space-between"><span class="chip">Blue • Roughness</span><span class="muted">click to add • drag • right‑click to delete</span></div>
+            <div class="group" id="groupB"></div>
+            <canvas id="curveB" class="curve" width="520" height="160"></canvas>
+          </div>
+          <div>
+            <div class="row" style="justify-content:space-between"><span class="chip">Alpha • Subsurface</span><span class="muted">click to add • drag • right‑click to delete</span></div>
+            <div class="group" id="groupA"></div>
+            <canvas id="curveA" class="curve" width="520" height="160"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Noise</h3>
+        <div class="grid-2">
+          <div class="group">
+            <div class="slider-row"><label for="noiseScale">Scale</label><input id="noiseScale" type="range" min="2" max="256" value="32"><span id="noiseScaleV">32</span></div>
+            <div class="slider-row"><label for="noiseAmp">Amplitude</label><input id="noiseAmp" type="range" min="0" max="255" value="0"><span id="noiseAmpV">0</span></div>
+            <div class="row">
+              <select id="noiseType" class="btn">
+                <option value="perlin">Perlin</option>
+                <option value="mojang">Mojang experimental noise</option>
+                <option value="custom" disabled>Custom (coming)</option>
+              </select>
+              <select id="noiseChannel" class="btn">
+                <option value="none">No channel</option>
+                <option value="r">Red (Metalness)</option>
+                <option value="g">Green (Emissive)</option>
+                <option value="b">Blue (Roughness)</option>
+                <option value="a">Alpha (SSS)</option>
+              </select>
+              <input id="noiseSeedInput" type="number" class="btn" style="width:120px" placeholder="Seed" />
+              <button class="btn" id="noiseSeedBtn">New seed</button>
+              <label class="switch"><input id="rememberSeed" type="checkbox"> Remember</label>
+            </div>
+          </div>
+          <div class="group">
+            <label class="switch"><input id="noiseEnabled" type="checkbox"> Apply noise to selected channel</label>
+            <label class="switch"><input id="noiseMaskAlpha" type="checkbox" checked> Only on non‑transparent pixels</label>
+            <p class="muted">Noise is generated at the texture resolution and previewed/exported into the chosen channel.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Animation</h3>
+        <div class="grid-2">
+          <div class="group">
+            <div class="slider-row slider-row-anim"><label for="frameW">Frame width</label><input id="frameW" type="range" min="8" max="4096" step="1" value="16"><input id="frameWn" type="number" min="8" max="4096" step="1" class="btn" style="width:80px" value="16"><span id="frameWV">16</span></div>
+            <div class="slider-row slider-row-anim"><label for="frameH">Frame height</label><input id="frameH" type="range" min="8" max="4096" step="1" value="16"><input id="frameHn" type="number" min="8" max="4096" step="1" class="btn" style="width:80px" value="16"><span id="frameHV">16</span></div>
+            <div class="slider-row slider-row-anim"><label for="frameMs">Frame time (ms)</label><input id="frameMs" type="range" min="30" max="1000" value="120"><input id="frameMsn" type="number" min="30" max="1000" step="1" class="btn" style="width:80px" value="120"><span id="frameMsV">120</span></div>
+          </div>
+          <div class="group">
+            <label class="switch"><input id="animOn" type="checkbox"> Animate (frames stacked top→bottom)</label>
+            <div class="row"><span class="muted">Index</span><input id="frameIndex" class="btn" type="number" min="0" value="0" style="width:80px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Painting tool panel -->
+      <div class="panel">
+        <h3>Paint</h3>
+        <div class="row mt">
+          <label class="switch" style="display:flex;align-items:center;gap:6px;font-size:12px;"><span>Color</span><input id="brushColor" type="color" value="#ff0000" style="width:32px;height:32px;border:none;padding:0;margin:0;"></label>
+          <label class="switch" style="display:flex;align-items:center;gap:6px;font-size:12px;"><span>Size</span><input id="brushSize" type="number" min="1" max="64" value="1" class="btn" style="width:60px"></label>
+          <button class="btn" id="toggleBrush">🖌️ Brush: Off</button>
+          <button class="btn" id="toggleBucket">🪣 Bucket: Off</button>
+          <button class="btn" id="toggleSelect">🎯 Select: Off</button>
+          <button class="btn" id="fillSelection" disabled>🎨 Fill</button>
+          <button class="btn small" id="clearSelection" disabled>✕ Clear</button>
+          <button class="btn small" id="undoPaint" title="Undo last stroke" disabled>↺ Undo</button>
+          <button class="btn small" id="redoPaint" title="Redo" disabled>↻ Redo</button>
+        </div>
+        <div class="row" style="margin-top:4px">
+          <label class="switch" style="display:flex;align-items:center;gap:6px;font-size:12px;"><input id="brushCopyAlpha" type="checkbox" style="margin:0"><span>Copy transparency</span></label>
+        </div>
+        <p class="muted" style="margin-top:8px">Click the right preview to pick a colour (and optionally its transparency), then paint on the left preview. Use Select tool to select pixels of the same color value in single-channel mode, then Fill to apply color to selection. Pan/zoom is disabled while tools are active.</p>
+      </div>
+
+      <div class="panel" id="layersPanel">
+        <h3>Layers</h3>
+        <div class="layersList">
+          <div class="layer-row" data-layer="brush">
+            <button class="btn icon eye" id="layer_vis_brush" title="Show/Hide">👁</button>
+            <span class="layer-name">🖌️ Brush</span>
+          </div>
+          <div class="layer-row" data-layer="bucket">
+            <button class="btn icon eye" id="layer_vis_bucket" title="Show/Hide">👁</button>
+            <span class="layer-name">🪣 Bucket</span>
+          </div>
+          <div class="layer-row" data-layer="sliders">
+            <button class="btn icon eye" id="layer_vis_sliders" title="Show/Hide">👁</button>
+            <span class="layer-name">🎛️ Sliders</span>
+          </div>
+          <div class="layer-row" data-layer="curves">
+            <button class="btn icon eye" id="layer_vis_curves" title="Show/Hide">👁</button>
+            <span class="layer-name">📈 Curves (mask)</span>
+          </div>
+          <div class="layer-row" data-layer="noise">
+            <button class="btn icon eye" id="layer_vis_noise" title="Show/Hide">👁</button>
+            <span class="layer-name">✨ Noise</span>
+          </div>
+        </div>
+        <p class="muted" style="margin-top:6px">Top overrides bottom. Click 👁 to toggle visibility.</p>
+      </div>
+      <style id="layersPanelStyle">
+        #layersPanel .layersList { display:flex; flex-direction:column; gap:4px; }
+        #layersPanel .layer-row { display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px dashed var(--muted); }
+        #layersPanel .layer-row:last-child{ border-bottom:none; }
+        #layersPanel .layer-name { font-weight:600; font-size:12px; }
+        #layersPanel .eye { width:30px; min-width:30px; text-align:center; }
+        #layersPanel .eye.off { opacity:0.4; }
+      </style><div class="panel">
+        <h3>Export</h3>
+        <div class="row">
+          <button class="btn primary" id="saveTGA">Export MERS .tga</button>
+          <button class="btn" id="saveZIP">Export channels (.zip)</button>
+          <span class="muted" id="dimInfo"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="right">
+      <div class="panel">
+        <div class="row" style="justify-content:space-between">
+          <div class="strip">
+            <button class="btn small" data-mode="rgba">RGBA</button>
+            <button class="btn small" data-mode="r">R</button>
+            <button class="btn small" data-mode="g">G</button>
+            <button class="btn small" data-mode="b">B</button>
+            <button class="btn small" data-mode="a">A</button>
+          </div>
+          <div class="row">
+            <label class="switch"><input id="useRefMapTop" type="checkbox"> Use ref map</label>
+            <select id="refMatchTop" class="btn refMatchSel">
+              <option value="color">Match colors</option>
+              <option value="pixel">Match by pixel</option>
+            </select>
+            <label class="switch"><input id="grayscaleTop" type="checkbox"> Grayscale</label>
+            <button class="btn icon" id="zoomOut">−</button>
+            <span class="chip" id="zoomVal">100%</span>
+            <button class="btn icon" id="zoomIn">＋</button>
+            <button class="btn icon" id="zoomReset" title="Reset view">⤾</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="previewShell">
+        <div class="canvasWrap" id="wrapOut">
+          <div class="canvasHeader"><span class="title">Your MERS preview</span><div class="toolbar"><span class="chip" id="outInfo">—</span></div></div>
+          <canvas id="canvasOut" class="preview" width="384" height="384"></canvas>
+          <canvas id="canvasPaint" class="preview" width="384" height="384" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
+          <canvas id="canvasSelection" class="preview" width="384" height="384" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
+        </div>
+        <div class="canvasWrap" id="wrapRef">
+          <div class="canvasHeader"><span class="title">Reference TGA</span><div class="toolbar"><span class="chip" id="refInfo">—</span></div></div>
+          <canvas id="canvasRef" class="preview" width="384" height="384"></canvas>
+      <!-- Overlay canvas for selection on the reference preview.  This mirrors the selection outline drawn on
+           the output canvas to provide visual feedback when matching colours between source and reference.
+           It is positioned absolutely within the wrapper so it can track pan/zoom and the header height. -->
+      <canvas id="canvasSelectionRef" class="preview" width="384" height="384"
+        style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
+        </div>
+      </div>
+
+      <div class="canvasWrap" style="margin-top:12px">
+        <div class="canvasHeader"><span class="title">Original texture</span><div class="toolbar"><span class="chip" id="srcInfo">—</span></div></div>
+        <canvas id="canvasSrc" class="preview" width="384" height="384"></canvas>
+      </div>
+
+      
+      <!-- Layers Panel (Photoshop/GIMP style) -->
+      
+<div class="panel footerRow">
+        <div class="row">
+          <button class="btn" id="toggleHist">📊 Histogram</button>
+          <span class="muted">Drag to move • hide with ×</span>
+        </div>
+        <span class="muted">Tip: drag on preview to pan • wheel to zoom • right‑click curve points to delete</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Histogram -->
+  <div class="histogram" id="histWin">
+    <div class="histTop" id="histDrag">
+      <span class="title">Channel histogram (current result)</span>
+      <div class="row">
+        <button class="histBtn" id="histHide">×</button>
+      </div>
+    </div>
+    <canvas id="histCanvas" width="420" height="210"></canvas>
+  </div>
+
+<script>
+/***********************
+ * Core Module System   *
+ ***********************/
+
+// Global namespace for all modules
+window.MERS = {};
+
+/***********************
+ * Utilities Module     *
+ ***********************/
+MERS.Utils = (function() {
+  'use strict';
+  
+  const clamp = (v, min = 0, max = 255) => Math.max(min, Math.min(max, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const $ = sel => document.querySelector(sel);
+  const toGray = (r, g, b) => Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+
+  return {
+    clamp,
+    lerp,
+    $,
+    toGray
+  };
+})();
+
+/***********************
+ * State Manager Module *
+ ***********************/
+MERS.StateManager = (function() {
+  'use strict';
+  
+  const state = {
+    src: null,
+    ref: null,
+    mappingOn: false,
+    refMatch: 'color',
+    mode: 'rgba',
+    grayscale: false,
+    invertAll: false,
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    noise: {
+      enabled: false,
+      type: 'perlin',
+      channel: 'none',
+      scale: 32,
+      amp: 0,
+      seed: 1337,
+      maskAlpha: true
+    },
+    anim: {
+      on: false,
+      w: 16,
+      h: 16,
+      ms: 120,
+      i: 0,
+      timer: null
+    },
+    sliders: {
+      r: { base: 128, infl: 50, bright: 0, contrast: 100, invert: false },
+      g: { base: 0, infl: 25, bright: 0, contrast: 100, invert: false },
+      b: { base: 128, infl: 75, bright: 0, contrast: 100, invert: false },
+      a: { base: 0, infl: 30, bright: 0, contrast: 100, invert: false },
+    },
+    curves: {
+      r: [{ x: 0, y: 160 }, { x: 520, y: 0 }],
+      g: [{ x: 0, y: 160 }, { x: 520, y: 0 }],
+      b: [{ x: 0, y: 160 }, { x: 520, y: 0 }],
+      a: [{ x: 0, y: 160 }, { x: 520, y: 0 }],
+    },
+    out: null,
+    refMapByColor: null,
+    refRes: null
+  };
+
+  const paintState = {
+    enabled: false,
+    painting: false,
+    color: { r: 255, g: 0, b: 0, a: 255 },
+    bucket: false,
+    select: false,
+    size: 1,
+    layer: null,
+    mask: null,
+    selection: null, // Uint8Array for selected pixels
+    undoStack: [],
+    redoStack: [],
+    copyAlpha: false
+  };
+
+  return {
+    getState: () => state,
+    getPaintState: () => paintState,
+    updateState: (updates) => Object.assign(state, updates),
+    updatePaintState: (updates) => Object.assign(paintState, updates),
+    resetSliders: () => {
+      state.sliders = {
+        r: { base: 128, infl: 50, bright: 0, contrast: 100, invert: false },
+        g: { base: 0, infl: 25, bright: 0, contrast: 100, invert: false },
+        b: { base: 128, infl: 75, bright: 0, contrast: 100, invert: false },
+        a: { base: 0, infl: 30, bright: 0, contrast: 100, invert: false },
+      };
+    },
+    resetCurves: () => {
+      state.curves = {
+        r: [{ x: 0, y: 160 }, { x: 520, y: 0 }],
+        g: [{ x: 0, y: 160 }, { x: 520, y: 0 }],
+        b: [{ x: 0, y: 160 }, { x: 520, y: 0 }],
+        a: [{ x: 0, y: 160 }, { x: 520, y: 0 }],
+      };
+    }
+  };
+})();
+
+/***********************
+ * Noise Generator Module *
+ ***********************/
+MERS.NoiseGenerator = (function() {
+  'use strict';
+  
+  const { lerp } = MERS.Utils;
+  let perlin = null;
+
+  function RNG(seed) {
+    let s = seed >>> 0;
+    return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+  }
+
+  function makePerlin(seed = 1337) {
+    const rnd = RNG(seed);
+    const perm = new Uint8Array(512);
+    for (let i = 0; i < 256; i++) perm[i] = i;
+    for (let i = 255; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      const t = perm[i];
+      perm[i] = perm[j];
+      perm[j] = t;
+    }
+    for (let i = 0; i < 256; i++) perm[256 + i] = perm[i];
+
+    function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+    function grad(h, x, y) {
+      const u = (h & 1) ? x : -x;
+      const v = (h & 2) ? y : -y;
+      return u + v;
+    }
+
+    return function(x, y) {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+      x -= Math.floor(x);
+      y -= Math.floor(y);
+      const u = fade(x), v = fade(y);
+      const A = perm[X] + Y, B = perm[X + 1] + Y;
+      const n00 = grad(perm[A] & 3, x, y);
+      const n10 = grad(perm[B] & 3, x - 1, y);
+      const n01 = grad(perm[A + 1] & 3, x, y - 1);
+      const n11 = grad(perm[B + 1] & 3, x - 1, y - 1);
+      return lerp(lerp(n00, n10, u), lerp(n01, n11, u), v) * 0.5 + 0.5;
+    };
+  }
+
+  // Mojang noise implementation
+  function mo_lerp(a, b, t) { return a + (b - a) * t; }
+  function mo_create2DArray(rows, cols) { return Array.from({ length: rows }, () => new Array(cols).fill(0)); }
+  function mo_mulberry32(seed) {
+    return function() {
+      seed |= 0;
+      seed = seed + 0x6D2B79F5 | 0;
+      let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  function mo_generateValueNoise(width, height, gridSize, seed) {
+    const grid = mo_create2DArray(gridSize, gridSize);
+    const rand = mo_mulberry32(seed);
+    for (let y = 0; y < gridSize; y++) {
+      for (let x = 0; x < gridSize; x++) {
+        grid[y][x] = rand();
+      }
+    }
+    const noise = mo_create2DArray(height, width);
+    const scaleX = (gridSize - 1) / width;
+    const scaleY = (gridSize - 1) / height;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const gx = x * scaleX;
+        const gy = y * scaleY;
+        const x0 = Math.floor(gx), x1 = Math.min(x0 + 1, gridSize - 1);
+        const y0 = Math.floor(gy), y1 = Math.min(y0 + 1, gridSize - 1);
+        const sx = gx - x0;
+        const sy = gy - y0;
+
+        const n00 = grid[y0][x0];
+        const n10 = grid[y0][x1];
+        const n01 = grid[y1][x0];
+        const n11 = grid[y1][x1];
+
+        const ix0 = mo_lerp(n00, n10, sx);
+        const ix1 = mo_lerp(n01, n11, sx);
+        const value = mo_lerp(ix0, ix1, sy);
+
+        noise[y][x] = value;
+      }
+    }
+    return noise;
+  }
+
+  function mo_generateMultiOctaveNoise(width, height, gridSizes, weights, seed) {
+    const noise = mo_create2DArray(height, width);
+    let totalWeight = 0;
+    for (let o = 0; o < gridSizes.length; o++) {
+      const g = gridSizes[o];
+      const weight = weights[o];
+      totalWeight += weight;
+      const octave = mo_generateValueNoise(width, height, g, seed + o);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          noise[y][x] += weight * octave[y][x];
+        }
+      }
+    }
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        noise[y][x] /= totalWeight;
+      }
+    }
+    return noise;
+  }
+
+  let mojangCache = null;
+
+  function ensureMojangCache() {
+    const state = MERS.StateManager.getState();
+    if (!state || !state.src) return null;
+    const w = state.src.width, h = state.src.height;
+    const meta = mojangCache ? mojangCache.meta : {};
+    const needRebuild = !mojangCache ||
+      meta.w !== w || meta.h !== h ||
+      meta.seed !== state.noise.seed ||
+      meta.scale !== state.noise.scale;
+    if (needRebuild) {
+      const g1 = Math.max(2, Math.floor(state.noise.scale / 2));
+      const g2 = Math.max(g1 + 1, Math.floor(state.noise.scale));
+      const field = mo_generateMultiOctaveNoise(w, h, [g1, g2], [0.7, 0.3], state.noise.seed);
+      mojangCache = { field, meta: { w, h, seed: state.noise.seed, scale: state.noise.scale } };
+    }
+    return mojangCache.field;
+  }
+
+  function getNoise(xx, yy) {
+    const state = MERS.StateManager.getState();
+    if (state && state.noise && state.noise.type === 'mojang') {
+      const field = ensureMojangCache();
+      if (!field) return 0;
+      const x = Math.max(0, Math.min(state.src.width - 1, Math.round(xx * state.noise.scale)));
+      const y = Math.max(0, Math.min(state.src.height - 1, Math.round(yy * state.noise.scale)));
+      return field[y][x];
+    }
+    if (!perlin) perlin = makePerlin(state.noise.seed);
+    return perlin(xx, yy);
+  }
+
+  function updateSeed(seed) {
+    perlin = makePerlin(seed);
+    mojangCache = null;
+  }
+
+  return {
+    getNoise,
+    updateSeed,
+    makePerlin
+  };
+})();
+
+/***********************
+ * Image Processor Module *
+ ***********************/
+MERS.ImageProcessor = (function() {
+  'use strict';
+  
+  const { clamp, toGray } = MERS.Utils;
+
+  function parseTGA(view) {
+    const idLen = view.getUint8(0), imageType = view.getUint8(2);
+    const width = view.getUint16(12, true), height = view.getUint16(14, true);
+    const bpp = view.getUint8(16);
+    const desc = view.getUint8(17);
+    if (imageType !== 2 || (bpp !== 24 && bpp !== 32)) throw new Error('Unsupported TGA');
+    const bytes = bpp / 8;
+    const start = 18 + idLen;
+    const data = new Uint8ClampedArray(width * height * 4);
+    const originTop = (desc & 0x20) !== 0;
+    let p = start;
+    for (let y = 0; y < height; y++) {
+      const row = originTop ? y : (height - 1 - y);
+      for (let x = 0; x < width; x++) {
+        const i = (row * width + x) * 4;
+        const B = view.getUint8(p++), G = view.getUint8(p++), R = view.getUint8(p++);
+        const A = (bytes === 4) ? view.getUint8(p++) : 255;
+        data[i] = R;
+        data[i + 1] = G;
+        data[i + 2] = B;
+        data[i + 3] = A;
+      }
+    }
+    return new ImageData(data, width, height);
+  }
+
+  function encodeTGA(imgd) {
+    const w = imgd.width, h = imgd.height;
+    const header = new Uint8Array(18);
+    header[2] = 2;
+    header[12] = w & 255;
+    header[13] = (w >> 8) & 255;
+    header[14] = h & 255;
+    header[15] = (h >> 8) & 255;
+    header[16] = 32;
+    header[17] = 0x20;
+    const out = new Uint8Array(18 + w * h * 4);
+    out.set(header, 0);
+    let p = 18;
+    const d = imgd.data;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        out[p++] = d[i + 2];
+        out[p++] = d[i + 1];
+        out[p++] = d[i];
+        out[p++] = d[i + 3];
+      }
+    }
+    return out;
+  }
+
+  function resampleImageData(imgd, W, H) {
+    if (imgd.width === W && imgd.height === H) return imgd;
+    const src = document.createElement('canvas');
+    src.width = imgd.width;
+    src.height = imgd.height;
+    src.getContext('2d').putImageData(imgd, 0, 0);
+    const dst = document.createElement('canvas');
+    dst.width = W;
+    dst.height = H;
+    const dx = dst.getContext('2d');
+    dx.imageSmoothingEnabled = false;
+    dx.drawImage(src, 0, 0, imgd.width, imgd.height, 0, 0, W, H);
+    return dx.getImageData(0, 0, W, H);
+  }
+
+  function renderForMode(imgd, mode, grayscale) {
+    const out = new ImageData(imgd.width, imgd.height);
+    const S = imgd.data, R = out.data;
+    const tint = { r: [255, 0, 0], g: [0, 255, 0], b: [0, 0, 255], a: [168, 85, 247] };
+    for (let i = 0; i < S.length; i += 4) {
+      const r = S[i], g = S[i + 1], b = S[i + 2], a = S[i + 3];
+      if (mode === 'rgba') {
+        R[i] = r;
+        R[i + 1] = g;
+        R[i + 2] = b;
+        R[i + 3] = 255;
+        continue;
+      }
+      const ch = mode;
+      const v = ch === 'r' ? r : ch === 'g' ? g : ch === 'b' ? b : a;
+      if (grayscale) {
+        R[i] = R[i + 1] = R[i + 2] = v;
+        R[i + 3] = 255;
+      } else {
+        const t = tint[ch];
+        R[i] = Math.round(v * t[0] / 255);
+        R[i + 1] = Math.round(v * t[1] / 255);
+        R[i + 2] = Math.round(v * t[2] / 255);
+        R[i + 3] = 255;
+      }
+    }
+    return out;
+  }
+
+  function drawInto(canvas, imgd) {
+    canvas.width = imgd.width;
+    canvas.height = imgd.height;
+    canvas.getContext('2d').putImageData(imgd, 0, 0);
+  }
+
+  return {
+    parseTGA,
+    encodeTGA,
+    resampleImageData,
+    renderForMode,
+    drawInto
+  };
+})();
+
+/***********************
+ * Curves Editor Module  *
+ ***********************/
+MERS.CurvesEditor = (function() {
+  'use strict';
+  
+  const { lerp } = MERS.Utils;
+
+  function evalCurveAt(key, x01) {
+    const state = MERS.StateManager.getState();
+    const pts = state.curves[key];
+    const X = x01 * 520;
+    let i = 0;
+    while (i < pts.length - 1 && X > pts[i + 1].x) i++;
+    const p1 = pts[i], p2 = pts[Math.min(i + 1, pts.length - 1)];
+    if (p2.x === p1.x) return 1 - (p1.y / 160);
+    const t = (X - p1.x) / (p2.x - p1.x);
+    const y = lerp(p1.y, p2.y, t);
+    return 1 - (y / 160);
+  }
+
+  function bindCurve(canvas, key) {
+    const ctx = canvas.getContext('2d');
+    const radius = 6;
+    let dragPoint = null;
+    let dragIdx = -1;
+
+    function draw() {
+      const state = MERS.StateManager.getState();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // grid
+      ctx.strokeStyle = '#2a2d4b';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 1; i < 8; i++) {
+        const x = i * canvas.width / 8;
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        const y = i * canvas.height / 8;
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+      }
+      ctx.stroke();
+      // diagonal
+      ctx.strokeStyle = '#3b3f67';
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(0, canvas.height);
+      ctx.lineTo(canvas.width, 0);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // polyline
+      const pts = state.curves[key];
+      ctx.strokeStyle = { r: '#ef4444', g: '#10b981', b: '#3b82f6', a: '#a855f7' }[key];
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+      // points
+      for (const p of pts) {
+        ctx.fillStyle = '#0f1120';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    function nearestCanvasXY(e) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+      return { x, y };
+    }
+
+    function nearestIndex(x, y) {
+      const state = MERS.StateManager.getState();
+      const pts = state.curves[key];
+      let i = -1, d = 9999;
+      pts.forEach((p, idx) => {
+        const dist = Math.hypot(p.x - x, p.y - y);
+        if (dist < d && dist < 10) {
+          d = dist;
+          i = idx;
+        }
+      });
+      return i;
+    }
+
+    canvas.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      const { x, y } = nearestCanvasXY(e);
+      const i = nearestIndex(x, y);
+      const state = MERS.StateManager.getState();
+      if (i > 0 && i < state.curves[key].length - 1) {
+        state.curves[key].splice(i, 1);
+        draw();
+        MERS.Core.recompute();
+      }
+    });
+
+    canvas.addEventListener('mousedown', e => {
+      const { x, y } = nearestCanvasXY(e);
+      const i = nearestIndex(x, y);
+      const state = MERS.StateManager.getState();
+      if (i > -1) {
+        dragPoint = state.curves[key][i];
+        dragIdx = i;
+      } else {
+        const p = { x: Math.max(0, Math.min(canvas.width, x)), y: Math.max(0, Math.min(canvas.height, y)) };
+        state.curves[key].push(p);
+        state.curves[key].sort((a, b) => a.x - b.x);
+        dragIdx = state.curves[key].indexOf(p);
+        dragPoint = p;
+      }
+      draw();
+    });
+
+    window.addEventListener('mousemove', e => {
+      if (!dragPoint) return;
+      const { x, y } = nearestCanvasXY(e);
+      const state = MERS.StateManager.getState();
+      const pts = state.curves[key];
+      const prev = pts[dragIdx - 1];
+      const next = pts[dragIdx + 1];
+      const minX = dragIdx === 0 ? 0 : prev.x + 1;
+      const maxX = dragIdx === pts.length - 1 ? canvas.width : next.x - 1;
+      dragPoint.x = Math.max(minX, Math.min(maxX, x));
+      dragPoint.y = Math.max(0, Math.min(canvas.height, y));
+      draw();
+      MERS.Core.recompute();
+    });
+
+    window.addEventListener('mouseup', () => {
+      dragPoint = null;
+      dragIdx = -1;
+    });
+
+    draw();
+  }
+
+  function drawAllCurves() {
+    bindCurve(document.getElementById('curveR'), 'r');
+    bindCurve(document.getElementById('curveG'), 'g');
+    bindCurve(document.getElementById('curveB'), 'b');
+    bindCurve(document.getElementById('curveA'), 'a');
+  }
+
+  return {
+    evalCurveAt,
+    bindCurve,
+    drawAllCurves
+  };
+})();
+
+/***********************
+ * Paint Tool Module     *
+ ***********************/
+MERS.PaintTool = (function() {
+  'use strict';
+  
+  function initPaintLayer(w, h) {
+    const paintState = MERS.StateManager.getPaintState();
+    try {
+      paintState.layer = new ImageData(new Uint8ClampedArray(w * h * 4), w, h);
+    } catch (e) {
+      const arr = new Uint8ClampedArray(w * h * 4);
+      paintState.layer = { data: arr, width: w, height: h };
+    }
+    try {
+      paintState.mask = new Uint8Array(w * h);
+      paintState.selection = new Uint8Array(w * h);
+    } catch (e) {
+      paintState.mask = new Array(w * h).fill(0);
+      paintState.selection = new Array(w * h).fill(0);
+    }
+  }
+
+  function applyPaintOnOut() {
+    const state = MERS.StateManager.getState();
+    const paintState = MERS.StateManager.getPaintState();
+    if (!state.out || !paintState.layer || !paintState.mask) return;
+    const outD = state.out.data;
+    const layD = paintState.layer.data;
+    const mask = paintState.mask;
+    const w = state.out.width, h = state.out.height;
+    for (let p = 0; p < w * h; p++) {
+      const m = mask[p];
+      if (!m) continue;
+      const i = p * 4;
+      if (m & 1) outD[i + 0] = layD[i + 0];
+      if (m & 2) outD[i + 1] = layD[i + 1];
+      if (m & 4) outD[i + 2] = layD[i + 2];
+      if (m & 8) outD[i + 3] = layD[i + 3];
+    }
+  }
+
+  function saveHistory() {
+    const state = MERS.StateManager.getState();
+    const paintState = MERS.StateManager.getPaintState();
+    if (!paintState.layer || !state.out) return;
+    const paintCopy = paintState.layer.data.slice();
+    const outCopy = state.out.data.slice();
+    paintState.undoStack.push({
+      paintData: paintCopy,
+      outData: outCopy,
+      maskData: (paintState.mask ? paintState.mask.slice() : null)
+    });
+    paintState.redoStack.length = 0;
+    updateUndoRedoButtons();
+  }
+
+  function updateUndoRedoButtons() {
+    const paintState = MERS.StateManager.getPaintState();
+    const undoBtn = document.getElementById('undoPaint');
+    const redoBtn = document.getElementById('redoPaint');
+    if (undoBtn) undoBtn.disabled = paintState.undoStack.length === 0;
+    if (redoBtn) redoBtn.disabled = paintState.redoStack.length === 0;
+  }
+
+  function mapEventToOutImage(e) {
+    const state = MERS.StateManager.getState();
+    if (!state.out) return null;
+    const outCanvas = document.getElementById('canvasOut');
+    const rect = outCanvas.getBoundingClientRect();
+    const xCanvas = e.clientX - rect.left;
+    const yCanvas = e.clientY - rect.top;
+    const w = state.out.width;
+    const h = state.out.height;
+    const frameW = state.anim.w || w;
+    const frameH = state.anim.h || h;
+    const frames = Math.max(1, Math.floor(h / frameH));
+    const frameY = state.anim.on ? state.anim.i * frameH : Math.min(state.anim.i, frames - 1) * frameH;
+    const viewW = Math.min(frameW, w);
+    const viewH = Math.min(frameH, h - frameY);
+    const fit = Math.min(rect.width / viewW, rect.height / viewH);
+    const scale = fit * state.zoom;
+    const dx = Math.round((rect.width - viewW * scale) / 2 + state.panX);
+    const dy = Math.round((rect.height - viewH * scale) / 2 + state.panY);
+    const ix = (xCanvas - dx) / scale;
+    const iy = (yCanvas - dy) / scale;
+    const xImg = Math.floor(ix + 1e-9);
+    const yImg = Math.floor(iy + 1e-9) + frameY;
+    if (isNaN(xImg) || isNaN(yImg)) return null;
+    if (xImg < 0 || xImg >= w || yImg < 0 || yImg >= h) return null;
+    return { x: xImg, y: yImg };
+  }
+
+  function activeChannel() {
+    const state = MERS.StateManager.getState();
+    const m = state.mode;
+    return (m === 'r' || m === 'g' || m === 'b' || m === 'a') ? m : null;
+  }
+
+  function chInfo(ch) {
+    return ch === 'r' ? { off: 0, bit: 1 } :
+           ch === 'g' ? { off: 1, bit: 2 } :
+           ch === 'b' ? { off: 2, bit: 4 } :
+           ch === 'a' ? { off: 3, bit: 8 } : null;
+  }
+
+  function paintAt(e) {
+    const state = MERS.StateManager.getState();
+    const paintState = MERS.StateManager.getPaintState();
+    if (!paintState.layer || !state.out) return;
+    const ch = activeChannel();
+    if (!ch) return;
+    const { off, bit } = chInfo(ch);
+
+    const coord = mapEventToOutImage(e);
+    if (!coord) return;
+    const w = paintState.layer.width;
+    const h = paintState.layer.height;
+    const size = paintState.size;
+    const px = coord.x;
+    const py = coord.y;
+    const col = [paintState.color.r, paintState.color.g, paintState.color.b, paintState.color.a][off];
+
+    for (let dy = 0; dy < size; dy++) {
+      const y = py + dy;
+      if (y < 0 || y >= h) continue;
+      for (let dx = 0; dx < size; dx++) {
+        const x = px + dx;
+        if (x < 0 || x >= w) continue;
+        const idx = (y * w + x) * 4;
+        const p = (y * w + x);
+        paintState.layer.data[idx + off] = col;
+        paintState.mask[p] = (paintState.mask[p] | bit);
+        state.out.data[idx + off] = paintState.layer.data[idx + off];
+      }
+    }
+    MERS.PreviewManager.drawPreview();
+  }
+
+  function bucketFillAt(e) {
+    const state = MERS.StateManager.getState();
+    const paintState = MERS.StateManager.getPaintState();
+    if (!state.out || !paintState.layer) return;
+    const ch = activeChannel();
+    if (!ch) return;
+    const { off, bit } = chInfo(ch);
+
+    const coord = mapEventToOutImage(e);
+    if (!coord) return;
+    const w = state.out.width, h = state.out.height;
+    const data = state.out.data;
+    const layer = paintState.layer.data;
+    const idx0 = (coord.y * w + coord.x) * 4;
+    const targetV = data[idx0 + off];
+    const newV = [paintState.color.r, paintState.color.g, paintState.color.b, paintState.color.a][off];
+    if (targetV === newV) return;
+
+    const seen = new Uint8Array(w * h);
+    const stack = [idx0];
+    seen[(idx0 / 4) | 0] = 1;
+    const pushIfMatch = (i) => {
+      const p = (i / 4) | 0;
+      if (seen[p]) return;
+      if (data[i + off] === targetV) {
+        seen[p] = 1;
+        stack.push(i);
+      }
+    };
+
+    while (stack.length) {
+      const i = stack.pop();
+      const p = (i / 4) | 0;
+      data[i + off] = newV;
+      layer[i + off] = newV;
+      paintState.mask[p] = (paintState.mask[p] | bit);
+      const x = p % w, y = (p / w) | 0;
+      if (x > 0) pushIfMatch(i - 4);
+      if (x < w - 1) pushIfMatch(i + 4);
+      if (y > 0) pushIfMatch(i - 4 * w);
+      if (y < h - 1) pushIfMatch(i + 4 * w);
+    }
+    MERS.PreviewManager.drawPreview();
+    MERS.HistogramManager.drawHistogram();
+  }
+
+  function pickColorFromEvent(e, imgType) {
+    const state = MERS.StateManager.getState();
+    const paintState = MERS.StateManager.getPaintState();
+    let imgd = null, canvas = null;
+    if (imgType === 'ref' && state.ref) {
+      imgd = state.ref;
+      canvas = document.getElementById('canvasRef');
+    } else if (imgType === 'src' && state.src) {
+      imgd = state.src;
+      canvas = document.getElementById('canvasSrc');
+    } else if (imgType === 'out' && state.out) {
+      imgd = state.out;
+      canvas = document.getElementById('canvasOut');
+    }
+    if (!imgd || !canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const xCanvas = e.clientX - rect.left;
+    const yCanvas = e.clientY - rect.top;
+
+    const w = imgd.width, h = imgd.height;
+    let viewW, viewH, frameY;
+
+    if (imgType === 'ref' || imgType === 'out') {
+      const frameW = state.anim.w || w;
+      const frameH = state.anim.h || h;
+      const frames = Math.max(1, Math.floor(h / frameH));
+      frameY = state.anim.on ? state.anim.i * frameH : Math.min(state.anim.i, frames - 1) * frameH;
+      viewW = Math.min(frameW, w);
+      viewH = Math.min(frameH, h - frameY);
+
+      const fit = Math.min(rect.width / viewW, rect.height / viewH);
+      const scale = fit * state.zoom;
+      const dx = Math.round((rect.width - viewW * scale) / 2 + state.panX);
+      const dy = Math.round((rect.height - viewH * scale) / 2 + state.panY);
+
+      const ix = (xCanvas - dx) / scale;
+      const iy = (yCanvas - dy) / scale;
+
+      var xImg = Math.floor(ix + 1e-9);
+      var yImg = Math.floor(iy + 1e-9) + frameY;
+    } else {
+      const scaleX = w / rect.width;
+      const scaleY = h / rect.height;
+      var xImg = Math.floor(xCanvas * scaleX + 1e-9);
+      var yImg = Math.floor(yCanvas * scaleY + 1e-9);
+    }
+
+    if (xImg < 0 || xImg >= w || yImg < 0 || yImg >= h) return;
+
+    const idx = (yImg * w + xImg) * 4, data = imgd.data;
+    const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3];
+
+    // Determine which channel is currently active.
+    // In RGBA mode we don't modify the colour at all – a click should do nothing.
+    const mode = state && state.mode;
+    if (!paintState || !mode || mode === 'rgba') {
+      return;
+    }
+
+    // Prepare new colour object. When selecting a single channel (r/g/b), we
+    // explicitly zero out the other colour channels so the brush swatch
+    // represents only the picked channel. Alpha is handled separately.
+    let newColor;
+    const getAlpha = () => (paintState.copyAlpha ? a : 255);
+    switch (mode) {
+      case 'r':
+        newColor = { r: r, g: 0, b: 0, a: getAlpha() };
+        break;
+      case 'g':
+        newColor = { r: 0, g: g, b: 0, a: getAlpha() };
+        break;
+      case 'b':
+        newColor = { r: 0, g: 0, b: b, a: getAlpha() };
+        break;
+      case 'a':
+        // For alpha channel, colour components are zero and only alpha is set
+        newColor = { r: 0, g: 0, b: 0, a: getAlpha() };
+        break;
+      default:
+        return;
+    }
+    paintState.color = newColor;
+
+    // Update the colour input swatch (r, g, b) to reflect the new colour.
+    const colorInput = document.getElementById('brushColor');
+    if (colorInput) {
+      const toHex = v => ('0' + Math.max(0, Math.min(255, v)).toString(16)).slice(-2);
+      colorInput.value = '#' + toHex(newColor.r) + toHex(newColor.g) + toHex(newColor.b);
+    }
+  }
+
+  function selectByColor(e) {
+    const state = MERS.StateManager.getState();
+    const paintState = MERS.StateManager.getPaintState();
+    if (!state.out || !paintState.selection) return;
+    
+    const ch = activeChannel();
+    if (!ch) return; // Only works with single channel selected
+    
+    const { off } = chInfo(ch);
+    const coord = mapEventToOutImage(e);
+    if (!coord) return;
+    
+    const w = state.out.width, h = state.out.height;
+    const data = state.out.data;
+    const targetIdx = (coord.y * w + coord.x) * 4;
+    const targetValue = data[targetIdx + off];
+    
+    // Clear previous selection
+    paintState.selection.fill(0);
+    
+    // Select all pixels with the same value in this channel
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        const p = y * w + x;
+        if (data[idx + off] === targetValue) {
+          paintState.selection[p] = 1;
+        }
+      }
+    }
+    
+    drawSelectionOverlay();
+    updateSelectionButtons();
+  }
+
+  function fillSelection() {
+    const state = MERS.StateManager.getState();
+    const paintState = MERS.StateManager.getPaintState();
+    if (!state.out || !paintState.layer || !paintState.selection) return;
+    
+    const ch = activeChannel();
+    if (!ch) return;
+    
+    const { off, bit } = chInfo(ch);
+    const w = state.out.width, h = state.out.height;
+    const data = state.out.data;
+    const layer = paintState.layer.data;
+    const newV = [paintState.color.r, paintState.color.g, paintState.color.b, paintState.color.a][off];
+    
+    saveHistory();
+    
+    for (let p = 0; p < w * h; p++) {
+      if (paintState.selection[p]) {
+        const i = p * 4;
+        data[i + off] = newV;
+        layer[i + off] = newV;
+        paintState.mask[p] = (paintState.mask[p] | bit);
+      }
+    }
+    
+    MERS.PreviewManager.drawPreview();
+    MERS.HistogramManager.drawHistogram();
+  }
+
+  function clearSelection() {
+    const paintState = MERS.StateManager.getPaintState();
+    if (!paintState.selection) return;
+    
+    paintState.selection.fill(0);
+    drawSelectionOverlay();
+    updateSelectionButtons();
+  }
+
+  function drawSelectionOverlay() {
+    const state = MERS.StateManager.getState();
+    const paintState = MERS.StateManager.getPaintState();
+    const canvas = document.getElementById('canvasSelection');
+    if (!canvas || !state.out || !paintState.selection) return;
+
+    // Helper to position and size an overlay canvas to match its underlying preview canvas.
+    function syncOverlayCanvas(overlay, targetCanvas) {
+      const wrap = targetCanvas.parentNode;
+      const rect = targetCanvas.getBoundingClientRect();
+      const wrapRect = wrap.getBoundingClientRect();
+      const topOffset = rect.top - wrapRect.top;
+      const leftOffset = rect.left - wrapRect.left;
+      overlay.style.top = `${topOffset}px`;
+      overlay.style.left = `${leftOffset}px`;
+      overlay.style.width = `${rect.width}px`;
+      overlay.style.height = `${rect.height}px`;
+      const wcss = Math.round(rect.width);
+      const hcss = Math.round(rect.height);
+      if (overlay.width !== wcss || overlay.height !== hcss) {
+        overlay.width = wcss;
+        overlay.height = hcss;
+      }
+    }
+
+    // Determine whether there is any selected pixel before drawing
+    let hasSelection = false;
+    for (let i = 0; i < paintState.selection.length; i++) {
+      if (paintState.selection[i]) {
+        hasSelection = true;
+        break;
+      }
+    }
+    if (!hasSelection) {
+      // Clear both overlays and bail early when nothing is selected
+      const ctxOutSel = canvas.getContext('2d');
+      ctxOutSel.clearRect(0, 0, canvas.width, canvas.height);
+      const canvasRefSel = document.getElementById('canvasSelectionRef');
+      if (canvasRefSel) {
+        const ctxRefSel = canvasRefSel.getContext('2d');
+        ctxRefSel.clearRect(0, 0, canvasRefSel.width, canvasRefSel.height);
+      }
+      return;
+    }
+
+    // Draw overlay on the output (left) preview
+    {
+      const outCanvas = document.getElementById('canvasOut');
+      const ctx = canvas.getContext('2d');
+      // Match CSS positioning and size to the output preview canvas
+      syncOverlayCanvas(canvas, outCanvas);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const w = state.out.width;
+      const h = state.out.height;
+      const frameW = state.anim.w || w;
+      const frameH = state.anim.h || h;
+      const frames = Math.max(1, Math.floor(h / frameH));
+      const frameY = state.anim.on ? state.anim.i * frameH : Math.min(state.anim.i, frames - 1) * frameH;
+      const viewW = Math.min(frameW, w);
+      const viewH = Math.min(frameH, h - frameY);
+      const fit = Math.min(canvas.width / viewW, canvas.height / viewH);
+      const scale = fit * state.zoom;
+      const dx = (canvas.width - viewW * scale) / 2 + state.panX;
+      const dy = (canvas.height - viewH * scale) / 2 + state.panY;
+      ctx.save();
+      ctx.setTransform(scale, 0, 0, scale, dx, dy);
+      ctx.imageSmoothingEnabled = false;
+      const time = Date.now() / 2000;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1 / scale;
+      ctx.setLineDash([4 / scale, 4 / scale]);
+      ctx.lineDashOffset = -time % (8 / scale);
+      ctx.beginPath();
+      for (let sy = 0; sy < viewH; sy++) {
+        const y = sy + frameY;
+        for (let x = 0; x < viewW; x++) {
+          const p = y * w + x;
+          if (!paintState.selection[p]) continue;
+          // left edge
+          if (x === 0 || !paintState.selection[p - 1]) {
+            ctx.moveTo(x, sy);
+            ctx.lineTo(x, sy + 1);
+          }
+          // right edge
+          if (x === viewW - 1 || !paintState.selection[p + 1]) {
+            ctx.moveTo(x + 1, sy);
+            ctx.lineTo(x + 1, sy + 1);
+          }
+          // top edge
+          if (sy === 0 || !paintState.selection[p - w]) {
+            ctx.moveTo(x, sy);
+            ctx.lineTo(x + 1, sy);
+          }
+          // bottom edge
+          if (sy === viewH - 1 || !paintState.selection[p + w]) {
+            ctx.moveTo(x, sy + 1);
+            ctx.lineTo(x + 1, sy + 1);
+          }
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Draw overlay on the reference (right) preview if a reference is loaded
+    const canvasRefSel = document.getElementById('canvasSelectionRef');
+    const refCanvas = document.getElementById('canvasRef');
+    if (canvasRefSel && refCanvas && state.ref) {
+      const ctxR = canvasRefSel.getContext('2d');
+      // Sync overlay position/size with the reference preview canvas
+      syncOverlayCanvas(canvasRefSel, refCanvas);
+      ctxR.clearRect(0, 0, canvasRefSel.width, canvasRefSel.height);
+      const rw = state.ref.width;
+      const rh = state.ref.height;
+      const frameW = state.anim.w || rw;
+      const frameH = state.anim.h || rh;
+      const framesR = Math.max(1, Math.floor(rh / frameH));
+      const frameYRef = state.anim.on ? state.anim.i * frameH : Math.min(state.anim.i, framesR - 1) * frameH;
+      const viewW = Math.min(frameW, rw);
+      const viewH = Math.min(frameH, rh - frameYRef);
+      const fitR = Math.min(canvasRefSel.width / viewW, canvasRefSel.height / viewH);
+      const scaleR = fitR * state.zoom;
+      const dxR = (canvasRefSel.width - viewW * scaleR) / 2 + state.panX;
+      const dyR = (canvasRefSel.height - viewH * scaleR) / 2 + state.panY;
+      ctxR.save();
+      ctxR.setTransform(scaleR, 0, 0, scaleR, dxR, dyR);
+      ctxR.imageSmoothingEnabled = false;
+      const timeR = Date.now() / 2000;
+      ctxR.strokeStyle = '#ffffff';
+      ctxR.lineWidth = 1 / scaleR;
+      ctxR.setLineDash([4 / scaleR, 4 / scaleR]);
+      ctxR.lineDashOffset = -timeR % (8 / scaleR);
+      ctxR.beginPath();
+      // Use state.out dimensions for selection indexing; selection array length equals w*h of state.out
+      const wOut = state.out.width;
+      const hOut = state.out.height;
+      for (let sy = 0; sy < viewH; sy++) {
+        const y = sy + frameYRef;
+        for (let x = 0; x < viewW; x++) {
+          const p = y * wOut + x;
+          if (!paintState.selection[p]) continue;
+          // left edge
+          if (x === 0 || !paintState.selection[p - 1]) {
+            ctxR.moveTo(x, sy);
+            ctxR.lineTo(x, sy + 1);
+          }
+          // right edge
+          if (x === viewW - 1 || !paintState.selection[p + 1]) {
+            ctxR.moveTo(x + 1, sy);
+            ctxR.lineTo(x + 1, sy + 1);
+          }
+          // top edge
+          if (sy === 0 || !paintState.selection[p - wOut]) {
+            ctxR.moveTo(x, sy);
+            ctxR.lineTo(x + 1, sy);
+          }
+          // bottom edge
+          if (sy === viewH - 1 || !paintState.selection[p + wOut]) {
+            ctxR.moveTo(x, sy + 1);
+            ctxR.lineTo(x + 1, sy + 1);
+          }
+        }
+      }
+      ctxR.stroke();
+      ctxR.restore();
+    }
+  }
+
+  function updateSelectionButtons() {
+    const paintState = MERS.StateManager.getPaintState();
+    const fillBtn = document.getElementById('fillSelection');
+    const clearBtn = document.getElementById('clearSelection');
+    
+    let hasSelection = false;
+    if (paintState.selection) {
+      for (let i = 0; i < paintState.selection.length; i++) {
+        if (paintState.selection[i]) {
+          hasSelection = true;
+          break;
+        }
+      }
+    }
+    
+    if (fillBtn) fillBtn.disabled = !hasSelection;
+    if (clearBtn) clearBtn.disabled = !hasSelection;
+  }
+
+  return {
+    initPaintLayer,
+    applyPaintOnOut,
+    saveHistory,
+    updateUndoRedoButtons,
+    mapEventToOutImage,
+    activeChannel,
+    chInfo,
+    paintAt,
+    bucketFillAt,
+    pickColorFromEvent,
+    selectByColor,
+    fillSelection,
+    clearSelection,
+    drawSelectionOverlay,
+    updateSelectionButtons
+  };
+})();
+
+/***********************
+ * File Manager Module   *
+ ***********************/
+MERS.FileManager = (function() {
+  'use strict';
+  
+  const { $ } = MERS.Utils;
+
+  function loadTexture(file) {
+    const nameSpan = $('#texName');
+    nameSpan.textContent = file.name;
+    const reader = new FileReader();
+    
+    if (file.name.toLowerCase().endsWith('.png')) {
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement('canvas');
+          c.width = img.width;
+          c.height = img.height;
+          c.getContext('2d').drawImage(img, 0, 0);
+          const state = MERS.StateManager.getState();
+          state.src = c.getContext('2d').getImageData(0, 0, c.width, c.height);
+          MERS.ImageProcessor.drawInto($('#canvasSrc'), state.src);
+          $('#srcInfo').textContent = `${c.width}×${c.height}`;
+          $('#dimInfo').textContent = `${c.width}×${c.height}`;
+          
+          MERS.PaintTool.initPaintLayer(c.width, c.height);
+          
+          state.anim.w = c.width;
+          state.anim.h = c.width;
+          MERS.AnimationManager.updateFrameControls(c.width, c.height);
+          MERS.Core.rebuildRefColorMap();
+          MERS.Core.recompute();
+          // Apply default zoom after loading a texture so it fits nicely within the preview.
+          {
+            const st = MERS.StateManager.getState();
+            st.zoom = 0.87;
+            const zoomLabel = document.getElementById('zoomVal');
+            if (zoomLabel) zoomLabel.textContent = Math.round(st.zoom * 100) + '%';
+          }
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      reader.onload = () => {
+        const state = MERS.StateManager.getState();
+        state.src = MERS.ImageProcessor.parseTGA(new DataView(reader.result));
+        MERS.ImageProcessor.drawInto($('#canvasSrc'), state.src);
+        $('#srcInfo').textContent = `${state.src.width}×${state.src.height}`;
+        $('#dimInfo').textContent = `${state.src.width}×${state.src.height}`;
+        
+        MERS.PaintTool.initPaintLayer(state.src.width, state.src.height);
+        
+        state.anim.w = state.src.width;
+        state.anim.h = state.src.width;
+        MERS.AnimationManager.updateFrameControls(state.src.width, state.src.height);
+        MERS.Core.rebuildRefColorMap();
+        MERS.Core.recompute();
+        // Apply default zoom after loading a texture so it fits nicely within the preview.
+        {
+          const st = MERS.StateManager.getState();
+          st.zoom = 0.87;
+          const zoomLabel = document.getElementById('zoomVal');
+          if (zoomLabel) zoomLabel.textContent = Math.round(st.zoom * 100) + '%';
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  }
+
+  function loadReference(file) {
+    const nameSpan = $('#refName');
+    nameSpan.textContent = file.name;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const ref = MERS.ImageProcessor.parseTGA(new DataView(reader.result));
+      const state = MERS.StateManager.getState();
+      state.ref = ref;
+      MERS.PreviewManager.drawReference();
+      MERS.UIManager.updateRefControls();
+      MERS.Core.rebuildRefColorMap();
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  return {
+    loadTexture,
+    loadReference
+  };
+})();
+
+/***********************
+ * Preview Manager Module *
+ ***********************/
+MERS.PreviewManager = (function() {
+  'use strict';
+  
+  function drawReference() {
+    const state = MERS.StateManager.getState();
+    if (!state.ref) return;
+    const info = document.getElementById('refInfo');
+    if (info) info.textContent = `${state.ref.width}×${state.ref.height}`;
+    const cr = document.getElementById('canvasRef');
+    if (cr) {
+      const rectR = cr.getBoundingClientRect();
+      const wcssR = Math.round(rectR.width);
+      const hcssR = Math.round(rectR.height);
+      if (cr.width !== wcssR || cr.height !== hcssR) {
+        cr.width = wcssR;
+        cr.height = hcssR;
+      }
+      const cx = cr.getContext('2d');
+      cx.imageSmoothingEnabled = false;
+      cx.setTransform(1, 0, 0, 1, 0, 0);
+      cx.clearRect(0, 0, cr.width, cr.height);
+    }
+    drawPreview();
+  }
+
+  function drawPreview() {
+    const state = MERS.StateManager.getState();
+    const canvasOut = document.getElementById('canvasOut');
+    const ctxOut = canvasOut.getContext('2d');
+    
+    ctxOut.save();
+    ctxOut.imageSmoothingEnabled = false;
+    ctxOut.setTransform(1, 0, 0, 1, 0, 0);
+    ctxOut.clearRect(0, 0, canvasOut.width, canvasOut.height);
+    ctxOut.fillStyle = '#0b0d1f';
+    
+    const rect = canvasOut.getBoundingClientRect();
+    const wcss = Math.round(rect.width);
+    const hcss = Math.round(rect.height);
+    if (canvasOut.width !== wcss || canvasOut.height !== hcss) {
+      canvasOut.width = wcss;
+      canvasOut.height = hcss;
+    }
+    ctxOut.fillRect(0, 0, canvasOut.width, canvasOut.height);
+    ctxOut.restore();
+    
+    if (!state.out) return;
+    
+    const w = state.out.width, h = state.out.height;
+    const frameW = state.anim.w || w, frameH = state.anim.h || h;
+    const frames = Math.max(1, Math.floor(h / frameH));
+    const frameY = state.anim.on ? state.anim.i * frameH : Math.min(state.anim.i, frames - 1) * frameH;
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    off.getContext('2d').putImageData(MERS.ImageProcessor.renderForMode(state.out, state.mode, state.grayscale), 0, 0);
+    const view = { x: 0, y: frameY, w: Math.min(frameW, w), h: Math.min(frameH, h - frameY) };
+    const fit = Math.min(canvasOut.width / view.w, canvasOut.height / view.h);
+    const scale = fit * state.zoom;
+    const dx = Math.round((canvasOut.width - view.w * scale) / 2 + state.panX);
+    const dy = Math.round((canvasOut.height - view.h * scale) / 2 + state.panY);
+    ctxOut.save();
+    ctxOut.setTransform(scale, 0, 0, scale, dx, dy);
+    ctxOut.imageSmoothingEnabled = false;
+    ctxOut.drawImage(off, view.x, view.y, view.w, view.h, 0, 0, view.w, view.h);
+    ctxOut.restore();
+    
+    // REF canvas
+    if (state.ref) {
+      const cr = document.getElementById('canvasRef');
+      const cx = cr.getContext('2d');
+      const rectR = cr.getBoundingClientRect();
+      const wcssR = Math.round(rectR.width);
+      const hcssR = Math.round(rectR.height);
+      if (cr.width !== wcssR || cr.height !== hcssR) {
+        cr.width = wcssR;
+        cr.height = hcssR;
+      }
+      
+      cx.save();
+      cx.setTransform(1, 0, 0, 1, 0, 0);
+      cx.clearRect(0, 0, cr.width, cr.height);
+      const rw = state.ref.width, rh = state.ref.height;
+      const tmp = document.createElement('canvas');
+      tmp.width = rw;
+      tmp.height = rh;
+      tmp.getContext('2d').putImageData(MERS.ImageProcessor.renderForMode(state.ref, state.mode, state.grayscale), 0, 0);
+      const viewW = Math.min(frameW, rw);
+      const viewH = Math.min(frameH, rh);
+      const frameYRef = Math.min(Math.max(frameY, 0), Math.max(0, rh - viewH));
+      const fitR = Math.min(cr.width / viewW, cr.height / viewH);
+      const scaleR = fitR * state.zoom;
+      const dxR = Math.round((cr.width - viewW * scaleR) / 2 + state.panX);
+      const dyR = Math.round((cr.height - viewH * scaleR) / 2 + state.panY);
+      cx.setTransform(scaleR, 0, 0, scaleR, dxR, dyR);
+      cx.drawImage(tmp, 0, frameYRef, viewW, viewH, 0, 0, viewW, viewH);
+      cx.restore();
+    }
+  }
+
+  return {
+    drawReference,
+    drawPreview
+  };
+})();
+
+/***********************
+ * Histogram Manager Module *
+ ***********************/
+MERS.HistogramManager = (function() {
+  'use strict';
+  
+  function drawHistogram() {
+    const state = MERS.StateManager.getState();
+    const histWin = document.getElementById('histWin');
+    const histCanvas = document.getElementById('histCanvas');
+    
+    if (histWin.style.display !== 'flex' || !state.out) return;
+    
+    const hctx = histCanvas.getContext('2d');
+    const img = state.out.data;
+    const binsR = new Uint32Array(256), binsG = new Uint32Array(256), binsB = new Uint32Array(256), binsA = new Uint32Array(256);
+    
+    for (let i = 0; i < img.length; i += 4) {
+      binsR[img[i]]++;
+      binsG[img[i + 1]]++;
+      binsB[img[i + 2]]++;
+      binsA[img[i + 3]]++;
+    }
+    
+    const H = histCanvas.height, W = histCanvas.width;
+    hctx.clearRect(0, 0, W, H);
+    const max = Math.max(...binsR, ...binsG, ...binsB, ...binsA);
+    
+    function plot(bins, color) {
+      hctx.beginPath();
+      hctx.strokeStyle = color;
+      hctx.lineWidth = 1.5;
+      for (let x = 0; x < 256; x++) {
+        const y = H - (bins[x] / max) * H;
+        if (x === 0) hctx.moveTo(x * (W / 256), y);
+        else hctx.lineTo(x * (W / 256), y);
+      }
+      hctx.stroke();
+    }
+    
+    plot(binsR, '#ef4444');
+    plot(binsG, '#10b981');
+    plot(binsB, '#3b82f6');
+    plot(binsA, '#a855f7');
+    hctx.fillStyle = '#8b5cf6';
+    hctx.fillText('R G B A', 6, 12);
+  }
+
+  function makeHistogramDraggable() {
+    const histWin = document.getElementById('histWin');
+    const drag = document.getElementById('histDrag');
+    let sx = 0, sy = 0, dragging = false;
+    
+    drag.addEventListener('mousedown', e => {
+      dragging = true;
+      sx = e.clientX - histWin.offsetLeft;
+      sy = e.clientY - histWin.offsetTop;
+      histWin.classList.add('dragging');
+    });
+    
+    window.addEventListener('mouseup', () => {
+      dragging = false;
+      histWin.classList.remove('dragging');
+    });
+    
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      histWin.style.left = (e.clientX - sx) + 'px';
+      histWin.style.top = (e.clientY - sy) + 'px';
+    });
+  }
+
+  return {
+    drawHistogram,
+    makeHistogramDraggable
+  };
+})();
+
+/***********************
+ * Animation Manager Module *
+ ***********************/
+MERS.AnimationManager = (function() {
+  'use strict';
+  
+  function bindAnimSlider(id, key, fmt = '') {
+    const { $ } = MERS.Utils;
+    const el = $(id), v = $(id + 'V');
+    const num = $(id + 'n');
+    
+    function apply(val) {
+      const state = MERS.StateManager.getState();
+      const n = Number(val);
+      if (Number.isFinite(n)) state.anim[key] = n;
+      if (el) el.value = state.anim[key];
+      if (v) v.textContent = state.anim[key] + fmt;
+      if (num) num.value = state.anim[key];
+      if (key === 'w' || key === 'h') MERS.Core.recompute();
+      if (key === 'ms' && state.anim.on) setupAnim();
+    }
+    
+    if (el) el.addEventListener('input', () => apply(el.value));
+    if (num) num.addEventListener('input', () => apply(num.value));
+    apply(el ? el.value : (num ? num.value : state.anim[key]));
+  }
+
+  function setupAnim() {
+    const state = MERS.StateManager.getState();
+    if (state.anim.timer) {
+      clearInterval(state.anim.timer);
+      state.anim.timer = null;
+    }
+    if (!state.anim.on) return;
+    state.anim.timer = setInterval(() => {
+      if (!state.src) return;
+      const frames = Math.floor(state.src.height / state.anim.h);
+      state.anim.i = (state.anim.i + 1) % Math.max(1, frames);
+      const frameIndex = document.getElementById('frameIndex');
+      if (frameIndex) frameIndex.value = state.anim.i;
+      MERS.PreviewManager.drawPreview();
+    }, state.anim.ms);
+  }
+
+  function updateFrameControls(width, height) {
+    const fw = document.getElementById('frameW'), fh = document.getElementById('frameH');
+    const fwv = document.getElementById('frameWV'), fhv = document.getElementById('frameHV');
+    const state = MERS.StateManager.getState();
+    
+    if (fw) {
+      fw.max = Math.max(Number(fw.max) || 0, width);
+      fw.value = state.anim.w;
+      fwv.textContent = state.anim.w;
+      const fwn = document.getElementById('frameWn');
+      if (fwn) {
+        fwn.max = fw.max;
+        fwn.value = state.anim.w;
+      }
+    }
+    if (fh) {
+      fh.max = Math.max(Number(fh.max) || 0, height);
+      fh.value = state.anim.h;
+      fhv.textContent = state.anim.h;
+      const fhn = document.getElementById('frameHn');
+      if (fhn) {
+        fhn.max = fh.max;
+        fhn.value = state.anim.h;
+      }
+    }
+  }
+
+  return {
+    bindAnimSlider,
+    setupAnim,
+    updateFrameControls
+  };
+})();
+
+/***********************
+ * Export Manager Module *
+ ***********************/
+MERS.ExportManager = (function() {
+  'use strict';
+  
+  function exportTGA() {
+    const state = MERS.StateManager.getState();
+    if (!state.out) return;
+    const data = MERS.ImageProcessor.encodeTGA(state.out);
+    const blob = new Blob([data], { type: 'application/octet-stream' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const name = (document.getElementById('texName').textContent || 'texture').replace(/\.(png|tga)$/i, '');
+    a.download = name + '_mers.tga';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  async function exportZIP() {
+    const state = MERS.StateManager.getState();
+    if (!state.out) return;
+    
+    const zip = new JSZip();
+    
+    function toPNG(ch) {
+      const W = state.out.width, H = state.out.height;
+      const c = document.createElement('canvas');
+      c.width = W;
+      c.height = H;
+      const ctx = c.getContext('2d');
+      const id = ctx.createImageData(W, H);
+      const S = state.out.data, R = id.data;
+      for (let i = 0; i < S.length; i += 4) {
+        const v = ch === 'r' ? S[i] : ch === 'g' ? S[i + 1] : ch === 'b' ? S[i + 2] : S[i + 3];
+        R[i] = R[i + 1] = R[i + 2] = v;
+        R[i + 3] = 255;
+      }
+      ctx.putImageData(id, 0, 0);
+      return new Promise(res => c.toBlob(b => res(b), 'image/png'));
+    }
+    
+    const files = [['r', 'Red (metalness)'], ['g', 'Green (emissive)'], ['b', 'Blue (roughness)'], ['a', 'Alpha (subsurface)']];
+    for (const [ch, name] of files) {
+      const blob = await toPNG(ch);
+      zip.file(`${name}.png`, blob);
+    }
+    
+    const tgaBlob = new Blob([MERS.ImageProcessor.encodeTGA(state.out)], { type: 'application/octet-stream' });
+    zip.file('mers.tga', tgaBlob);
+    const content = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(content);
+    const base = (document.getElementById('texName').textContent || 'texture').replace(/\.(png|tga)$/i, '');
+    a.download = base + '_mers.zip';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  return {
+    exportTGA,
+    exportZIP
+  };
+})();
+
+/***********************
+ * UI Manager Module     *
+ ***********************/
+MERS.UIManager = (function() {
+  'use strict';
+  
+  const { $ } = MERS.Utils;
+
+  function sliderTemplate(label, id, min, max, val, fmt = '') {
+    return `
+      <div class="slider-row">
+        <label for="${id}">${label}</label>
+        <input id="${id}" type="range" min="${min}" max="${max}" value="${val}">
+        <span id="${id}V">${val}${fmt}</span>
+      </div>`;
+  }
+
+  function buildChannelGroup(key, name, color) {
+    const state = MERS.StateManager.getState();
+    const cont = document.getElementById('group' + key.toUpperCase());
+    const s = state.sliders[key];
+    cont.innerHTML = `
+      <div class="row"><span class="chip" style="border-color:${color};color:${color}">${name}</span>
+        <label class="switch"><input id="inv-${key}" type="checkbox" ${s.invert ? 'checked' : ''}> invert</label>
+      </div>
+      ${sliderTemplate('Base', `${key}-base`, 0, 255, s.base)}
+      ${sliderTemplate('Texture influence %', `${key}-infl`, 0, 200, s.infl)}
+      ${sliderTemplate('Brightness', `${key}-bright`, -100, 100, s.bright)}
+      ${sliderTemplate('Contrast %', `${key}-contrast`, 25, 300, s.contrast)}
+    `;
+
+    ['base', 'infl', 'bright', 'contrast'].forEach(k => {
+      const el = document.getElementById(`${key}-${k}`);
+      const val = document.getElementById(`${key}-${k}V`);
+      el.addEventListener('input', () => {
+        state.sliders[key][k] = Number(el.value);
+        val.textContent = el.value + (k === 'infl' ? '' : '');
+        MERS.Core.recompute();
+      });
+    });
+    document.getElementById(`inv-${key}`).addEventListener('change', e => {
+      state.sliders[key].invert = e.target.checked;
+      MERS.Core.recompute();
+    });
+  }
+
+  function setMappingOn(v) {
+    const state = MERS.StateManager.getState();
+    MERS.Core.rebuildRefColorMap();
+    state.mappingOn = !!v;
+    ['useRefMap', 'useRefMapTop'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.checked = state.mappingOn;
+    });
+    MERS.Core.recompute();
+  }
+
+  function setGrayscale(v) {
+    const state = MERS.StateManager.getState();
+    state.grayscale = !!v;
+    ['grayscaleMode', 'grayscaleTop'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.checked = state.grayscale;
+    });
+    MERS.PreviewManager.drawPreview();
+  }
+
+  function updateRefControls() {
+    const state = MERS.StateManager.getState();
+    ['useRefMap', 'useRefMapTop'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.disabled = !state.ref;
+      const label = el.closest('label');
+      if (label) {
+        label.style.opacity = state.ref ? 1 : 0.5;
+      }
+    });
+    const sels = document.querySelectorAll('.refMatchSel');
+    sels.forEach(sel => {
+      sel.disabled = !state.ref;
+      sel.style.opacity = state.ref ? '1' : '0.5';
+      if (state.refMatch) {
+        sel.value = state.refMatch;
+      }
+    });
+  }
+
+  function resetView() {
+    const state = MERS.StateManager.getState();
+    // Reset zoom and pan to sensible defaults.  Rather than using a full 100% scale, default
+    // to 87% so the entire texture fits comfortably within the preview area.  The pan
+    // offsets are cleared so the view is centered.
+    state.zoom = 0.87;
+    state.panX = state.panY = 0;
+    // Update zoom display label to reflect new default
+    const zoomLabel = document.getElementById('zoomVal');
+    if (zoomLabel) zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
+    MERS.PreviewManager.drawPreview();
+  }
+
+  function bindEventListeners() {
+    // Channel groups
+    ['r', 'g', 'b', 'a'].forEach(ch => {
+      const names = { r: 'Red • Metalness', g: 'Green • Emissive', b: 'Blue • Roughness', a: 'Alpha • SSS' };
+      const colors = { r: '#ef4444', g: '#10b981', b: '#3b82f6', a: '#a855f7' };
+      buildChannelGroup(ch, names[ch], colors[ch]);
+    });
+
+    // Reset buttons
+    $('#resetSliders').addEventListener('click', () => {
+      MERS.StateManager.resetSliders();
+      ['r', 'g', 'b', 'a'].forEach(ch => buildChannelGroup(ch, '', ''));
+      MERS.Core.recompute();
+    });
+    $('#resetCurves').addEventListener('click', () => {
+      MERS.StateManager.resetCurves();
+      MERS.CurvesEditor.drawAllCurves();
+      MERS.Core.recompute();
+    });
+
+    // File pickers
+    $('#pickTex').addEventListener('click', () => $('#fileTex').click());
+    $('#pickRef').addEventListener('click', () => $('#fileRef').click());
+    $('#fileTex').addEventListener('change', e => {
+      if (e.target.files[0]) MERS.FileManager.loadTexture(e.target.files[0]);
+    });
+    $('#fileRef').addEventListener('change', e => {
+      if (e.target.files[0]) MERS.FileManager.loadReference(e.target.files[0]);
+    });
+
+    // Toggles
+    ['useRefMap', 'useRefMapTop'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', e => setMappingOn(e.target.checked));
+    });
+
+    ['refMatchLeft', 'refMatchTop'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('change', e => {
+          const state = MERS.StateManager.getState();
+          state.refMatch = e.target.value;
+          const sels = document.querySelectorAll('.refMatchSel');
+          sels.forEach(sel => { sel.value = state.refMatch; });
+          MERS.Core.recompute();
+        });
+      }
+    });
+
+    ['grayscaleMode', 'grayscaleTop'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', e => setGrayscale(e.target.checked));
+    });
+
+    $('#invertAll').addEventListener('change', e => {
+      const state = MERS.StateManager.getState();
+      state.invertAll = e.target.checked;
+      MERS.Core.recompute();
+    });
+
+    $('#darkToggle').addEventListener('click', () => {
+      document.body.classList.toggle('dark');
+    });
+
+    // Mode buttons
+    [...document.querySelectorAll('.panel .strip .btn')].forEach(b => {
+      b.addEventListener('click', () => {
+        const state = MERS.StateManager.getState();
+        state.mode = b.dataset.mode;
+        MERS.PreviewManager.drawPreview();
+      });
+    });
+
+    // Zoom & pan
+    const canvasOut = document.getElementById('canvasOut');
+    let isDragging = false, lastX = 0, lastY = 0;
+
+    $('#zoomIn').addEventListener('click', () => {
+      const state = MERS.StateManager.getState();
+      state.zoom = Math.min(16, state.zoom * 1.25);
+      $('#zoomVal').textContent = Math.round(state.zoom * 100) + '%';
+      MERS.PreviewManager.drawPreview();
+    });
+
+    $('#zoomOut').addEventListener('click', () => {
+      const state = MERS.StateManager.getState();
+      state.zoom = Math.max(.25, state.zoom / 1.25);
+      $('#zoomVal').textContent = Math.round(state.zoom * 100) + '%';
+      MERS.PreviewManager.drawPreview();
+    });
+
+    $('#zoomReset').addEventListener('click', () => {
+      // Reset the view to the default zoom and pan settings.  After resetting, update
+      // the zoom display to reflect the current zoom rather than hard‑coding 100%.
+      resetView();
+      const st = MERS.StateManager.getState();
+      $('#zoomVal').textContent = Math.round(st.zoom * 100) + '%';
+    });
+
+    canvasOut.addEventListener('wheel', e => {
+      const paintState = MERS.StateManager.getPaintState();
+      if (paintState && paintState.enabled) return;
+      e.preventDefault();
+      const state = MERS.StateManager.getState();
+      const s = Math.sign(e.deltaY);
+      state.zoom = Math.max(.25, Math.min(16, state.zoom * (s > 0 ? 0.9 : 1.1)));
+      document.getElementById('zoomVal').textContent = Math.round(state.zoom * 100) + '%';
+      MERS.PreviewManager.drawPreview();
+    }, { passive: false });
+
+    canvasOut.addEventListener('mousedown', e => {
+      const paintState = MERS.StateManager.getPaintState();
+      if (paintState && paintState.enabled) return;
+      isDragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    });
+
+    window.addEventListener('mouseup', () => isDragging = false);
+
+    window.addEventListener('mousemove', e => {
+      const paintState = MERS.StateManager.getPaintState();
+      if (paintState && paintState.enabled) return;
+      if (!isDragging) return;
+      const state = MERS.StateManager.getState();
+      state.panX += e.clientX - lastX;
+      state.panY += e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      MERS.PreviewManager.drawPreview();
+    });
+
+    // Noise controls
+    ['noiseScale', 'noiseAmp'].forEach(id => {
+      const el = document.getElementById(id), v = document.getElementById(id + 'V');
+      el.addEventListener('input', () => {
+        const state = MERS.StateManager.getState();
+        const key = id === 'noiseScale' ? 'scale' : 'amp';
+        state.noise[key] = Number(el.value);
+        v.textContent = el.value;
+        MERS.Core.recompute();
+      });
+    });
+
+    $('#noiseSeedBtn').addEventListener('click', () => {
+      const state = MERS.StateManager.getState();
+      state.noise.seed = (Math.random() * 1e9) | 0;
+      const seedInput = document.getElementById('noiseSeedInput');
+      if (seedInput) seedInput.value = state.noise.seed;
+      const remember = document.getElementById('rememberSeed');
+      if (remember && remember.checked) {
+        localStorage.setItem('mersNoiseSeed', String(state.noise.seed));
+        localStorage.setItem('mersRememberSeed', '1');
+      }
+      MERS.NoiseGenerator.updateSeed(state.noise.seed);
+      MERS.Core.recompute();
+    });
+
+    $('#noiseChannel').addEventListener('change', e => {
+      const state = MERS.StateManager.getState();
+      state.noise.channel = e.target.value;
+      MERS.Core.recompute();
+    });
+
+    $('#noiseEnabled').addEventListener('change', e => {
+      const state = MERS.StateManager.getState();
+      state.noise.enabled = e.target.checked;
+      MERS.Core.recompute();
+    });
+
+    $('#noiseMaskAlpha').addEventListener('change', e => {
+      const state = MERS.StateManager.getState();
+      state.noise.maskAlpha = e.target.checked;
+      MERS.Core.recompute();
+    });
+
+    $('#noiseType').addEventListener('change', e => {
+      const state = MERS.StateManager.getState();
+      state.noise.type = e.target.value;
+      MERS.Core.recompute();
+    });
+
+    // Animation controls
+    MERS.AnimationManager.bindAnimSlider('#frameW', 'w');
+    MERS.AnimationManager.bindAnimSlider('#frameH', 'h');
+    MERS.AnimationManager.bindAnimSlider('#frameMs', 'ms', 'ms');
+
+    $('#animOn').addEventListener('change', e => {
+      const state = MERS.StateManager.getState();
+      state.anim.on = e.target.checked;
+      MERS.AnimationManager.setupAnim();
+    });
+
+    $('#frameIndex').addEventListener('input', e => {
+      const state = MERS.StateManager.getState();
+      state.anim.i = Number(e.target.value) || 0;
+      MERS.PreviewManager.drawPreview();
+    });
+
+    // Paint tool controls
+    const colorInput = document.getElementById('brushColor');
+    const sizeInput = document.getElementById('brushSize');
+    const toggleBtn = document.getElementById('toggleBrush');
+    const bucketBtn = document.getElementById('toggleBucket');
+    const selectBtn = document.getElementById('toggleSelect');
+    const fillBtn = document.getElementById('fillSelection');
+    const clearBtn = document.getElementById('clearSelection');
+    const paintCanvas = document.getElementById('canvasPaint');
+    const undoBtn = document.getElementById('undoPaint');
+    const redoBtn = document.getElementById('redoPaint');
+    const copyAlphaChk = document.getElementById('brushCopyAlpha');
+
+    if (colorInput) {
+      colorInput.addEventListener('input', e => {
+        const hex = e.target.value;
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        const paintState = MERS.StateManager.getPaintState();
+        paintState.color = { r, g, b, a: 255 };
+      });
+    }
+
+    if (sizeInput) {
+      sizeInput.addEventListener('input', e => {
+        const n = parseInt(e.target.value, 10);
+        const paintState = MERS.StateManager.getPaintState();
+        if (n > 0) paintState.size = n;
+      });
+    }
+
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        const paintState = MERS.StateManager.getPaintState();
+        paintState.enabled = !paintState.enabled;
+        toggleBtn.textContent = paintState.enabled ? '🖌️ Brush: On' : '🖌️ Brush: Off';
+        if (paintCanvas) paintCanvas.style.pointerEvents = (paintState.enabled || paintState.bucket || paintState.select) ? 'auto' : 'none';
+        if (canvasOut) canvasOut.style.cursor = (paintState.enabled || paintState.bucket || paintState.select) ? 'crosshair' : 'default';
+      });
+    }
+
+    if (bucketBtn) {
+      bucketBtn.addEventListener('click', () => {
+        const paintState = MERS.StateManager.getPaintState();
+        paintState.bucket = !paintState.bucket;
+        bucketBtn.textContent = paintState.bucket ? '🪣 Bucket: On' : '🪣 Bucket: Off';
+        if (paintCanvas) paintCanvas.style.pointerEvents = (paintState.enabled || paintState.bucket || paintState.select) ? 'auto' : 'none';
+        if (canvasOut) canvasOut.style.cursor = (paintState.enabled || paintState.bucket || paintState.select) ? 'crosshair' : 'default';
+      });
+    }
+
+    if (selectBtn) {
+      selectBtn.addEventListener('click', () => {
+        const paintState = MERS.StateManager.getPaintState();
+        const state = MERS.StateManager.getState();
+        
+        // Only allow select tool when a single channel is selected
+        if (state.mode === 'rgba') {
+          alert('Color select only works when a single channel (R, G, B, or A) is selected.');
+          return;
+        }
+        
+        paintState.select = !paintState.select;
+        selectBtn.textContent = paintState.select ? '🎯 Select: On' : '🎯 Select: Off';
+        if (paintCanvas) paintCanvas.style.pointerEvents = (paintState.enabled || paintState.bucket || paintState.select) ? 'auto' : 'none';
+        if (canvasOut) canvasOut.style.cursor = (paintState.enabled || paintState.bucket || paintState.select) ? 'crosshair' : 'default';
+      });
+    }
+
+    if (fillBtn) {
+      fillBtn.addEventListener('click', () => {
+        MERS.PaintTool.fillSelection();
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        MERS.PaintTool.clearSelection();
+      });
+    }
+
+    if (copyAlphaChk) {
+      copyAlphaChk.addEventListener('change', e => {
+        const paintState = MERS.StateManager.getPaintState();
+        paintState.copyAlpha = e.target.checked;
+      });
+    }
+
+    if (undoBtn) {
+      undoBtn.addEventListener('click', () => {
+        const state = MERS.StateManager.getState();
+        const paintState = MERS.StateManager.getPaintState();
+        if (paintState.undoStack.length === 0 || !paintState.layer || !state.out) return;
+        const currentPaint = paintState.layer.data.slice();
+        const currentOut = state.out.data.slice();
+        paintState.redoStack.push({
+          paintData: currentPaint,
+          outData: currentOut,
+          maskData: (paintState.mask ? paintState.mask.slice() : null)
+        });
+        const snap = paintState.undoStack.pop();
+        paintState.layer.data.set(snap.paintData);
+        state.out.data.set(snap.outData);
+        if (snap.maskData && paintState.mask) {
+          paintState.mask.set(snap.maskData);
+        }
+        MERS.PaintTool.updateUndoRedoButtons();
+        MERS.PreviewManager.drawPreview();
+        MERS.HistogramManager.drawHistogram();
+      });
+    }
+
+    if (redoBtn) {
+      redoBtn.addEventListener('click', () => {
+        const state = MERS.StateManager.getState();
+        const paintState = MERS.StateManager.getPaintState();
+        if (paintState.redoStack.length === 0 || !paintState.layer || !state.out) return;
+        const currentPaint = paintState.layer.data.slice();
+        const currentOut = state.out.data.slice();
+        paintState.undoStack.push({
+          paintData: currentPaint,
+          outData: currentOut,
+          maskData: (paintState.mask ? paintState.mask.slice() : null)
+        });
+        const snap = paintState.redoStack.pop();
+        paintState.layer.data.set(snap.paintData);
+        state.out.data.set(snap.outData);
+        if (snap.maskData && paintState.mask) {
+          paintState.mask.set(snap.maskData);
+        }
+        MERS.PaintTool.updateUndoRedoButtons();
+        MERS.PreviewManager.drawPreview();
+        MERS.HistogramManager.drawHistogram();
+      });
+    }
+
+    // Paint canvas events
+    if (paintCanvas) {
+      paintCanvas.addEventListener('mousedown', e => {
+        const paintState = MERS.StateManager.getPaintState();
+        
+        if (paintState.select) {
+          MERS.PaintTool.selectByColor(e);
+          e.stopPropagation();
+          e.preventDefault();
+          return;
+        }
+        
+        if (paintState.bucket) {
+          MERS.PaintTool.saveHistory();
+          MERS.PaintTool.bucketFillAt(e);
+          e.stopPropagation();
+          e.preventDefault();
+          return;
+        }
+        
+        if (!paintState.enabled) return;
+        MERS.PaintTool.saveHistory();
+        paintState.painting = true;
+        MERS.PaintTool.paintAt(e);
+        e.stopPropagation();
+        e.preventDefault();
+      });
+
+      window.addEventListener('mousemove', e => {
+        const paintState = MERS.StateManager.getPaintState();
+        if (!paintState.enabled || !paintState.painting) return;
+        const rect = paintCanvas.getBoundingClientRect();
+        if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+          MERS.PaintTool.paintAt(e);
+        }
+      });
+
+      window.addEventListener('mouseup', () => {
+        const paintState = MERS.StateManager.getPaintState();
+        paintState.painting = false;
+      });
+    }
+
+    // Color picking
+    document.getElementById('canvasRef')?.addEventListener('click', e => MERS.PaintTool.pickColorFromEvent(e, 'ref'));
+    document.getElementById('canvasSrc')?.addEventListener('click', e => MERS.PaintTool.pickColorFromEvent(e, 'src'));
+    document.getElementById('canvasOut')?.addEventListener('click', e => MERS.PaintTool.pickColorFromEvent(e, 'out'));
+
+    // Histogram controls
+    $('#toggleHist').addEventListener('click', () => {
+      const histWin = document.getElementById('histWin');
+      histWin.style.display = histWin.style.display === 'flex' ? 'none' : 'flex';
+      MERS.HistogramManager.drawHistogram();
+    });
+
+    $('#histHide').addEventListener('click', () => {
+      document.getElementById('histWin').style.display = 'none';
+    });
+
+    // Export controls
+    $('#saveTGA').addEventListener('click', MERS.ExportManager.exportTGA);
+    $('#saveZIP').addEventListener('click', MERS.ExportManager.exportZIP);
+
+    // Seed persistence
+    const seedInput = document.getElementById('noiseSeedInput');
+    const remember = document.getElementById('rememberSeed');
+    
+    if (remember) {
+      remember.checked = localStorage.getItem('mersRememberSeed') === '1';
+      remember.addEventListener('change', () => {
+        localStorage.setItem('mersRememberSeed', remember.checked ? '1' : '0');
+        if (remember.checked) {
+          const state = MERS.StateManager.getState();
+          localStorage.setItem('mersNoiseSeed', String(state.noise.seed));
+        }
+      });
+    }
+
+    const savedSeed = localStorage.getItem('mersNoiseSeed');
+    if (savedSeed && remember && remember.checked) {
+      const v = parseInt(savedSeed, 10);
+      if (!isNaN(v)) {
+        const state = MERS.StateManager.getState();
+        state.noise.seed = v;
+        if (seedInput) seedInput.value = v;
+        MERS.NoiseGenerator.updateSeed(state.noise.seed);
+      }
+    } else {
+      const state = MERS.StateManager.getState();
+      if (seedInput) seedInput.value = state.noise.seed;
+    }
+
+    if (seedInput) {
+      seedInput.addEventListener('change', () => {
+        const v = parseInt(seedInput.value, 10);
+        if (!isNaN(v)) {
+          const state = MERS.StateManager.getState();
+          state.noise.seed = v;
+          if (remember && remember.checked) {
+            localStorage.setItem('mersNoiseSeed', String(v));
+          }
+          MERS.NoiseGenerator.updateSeed(state.noise.seed);
+          MERS.Core.recompute();
+        }
+      });
+    }
+  }
+
+  return {
+    sliderTemplate,
+    buildChannelGroup,
+    setMappingOn,
+    setGrayscale,
+    updateRefControls,
+    resetView,
+    bindEventListeners
+  };
+})();
+
+/***********************
+ * Core Processing Module *
+ ***********************/
+MERS.Core = (function() {
+  'use strict';
+  
+  const { clamp, toGray, lerp } = MERS.Utils;
+
+  function recompute() {
+    const state = MERS.StateManager.getState();
+    if (!state.src) {
+      MERS.PreviewManager.drawPreview();
+      return;
+    }
+    
+    const w = state.src.width, h = state.src.height;
+    const result = new ImageData(w, h);
+    const S = state.src.data, R = result.data;
+
+    const cmap = (state.mappingOn && state.refMapByColor && state.refMapByColor.map) ? state.refMapByColor.map : null;
+    const byPixel = state.mappingOn && state.refMatch === 'pixel' && state.refRes ? true : false;
+
+    const noiseOn = state.noise.enabled && state.noise.channel !== 'none' && state.noise.amp > 0;
+    
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const sr = S[i], sg = S[i + 1], sb = S[i + 2], sa = S[i + 3];
+        const texGray = toGray(sr, sg, sb) / 255;
+
+        let texR, texG, texB, texA;
+        if (byPixel) {
+          const ref = state.refRes && state.refRes.data;
+          const Ridx = i;
+          if (ref && sa > 0) {
+            texR = ref[Ridx] / 255;
+            texG = ref[Ridx + 1] / 255;
+            texB = ref[Ridx + 2] / 255;
+            texA = ref[Ridx + 3] / 255;
+          } else {
+            texR = texG = texB = texGray;
+            texA = sa / 255;
+          }
+        } else if (cmap) {
+          const key = sr + ',' + sg + ',' + sb + ',' + sa;
+          const mapped = cmap.get(key);
+          if (mapped && sa > 0) {
+            texR = mapped[0] / 255;
+            texG = mapped[1] / 255;
+            texB = mapped[2] / 255;
+            texA = mapped[3] / 255;
+          } else {
+            texR = texG = texB = texGray;
+            texA = sa / 255;
+          }
+        } else {
+          texR = texG = texB = texGray;
+          texA = sa / 255;
+        }
+
+        function chVal(key, tex01) {
+          const sl = state.sliders[key];
+          let v01;
+          if (state.mappingOn) {
+            v01 = tex01;
+          } else {
+            const base01 = sl.base / 255;
+            const infl01 = sl.infl / 100;
+            v01 = base01 + (tex01 - base01) * infl01;
+          }
+          v01 = (v01 - 0.5) * (sl.contrast / 100) + 0.5;
+          v01 += sl.bright / 255;
+          v01 = Math.max(0, Math.min(1, v01));
+          v01 = MERS.CurvesEditor.evalCurveAt(key, v01);
+          if (sl.invert) v01 = 1 - v01;
+          return Math.round(v01 * 255);
+        }
+
+        let RR = chVal('r', texR);
+        let GG = chVal('g', texG);
+        let BB = chVal('b', texB);
+        let AA = chVal('a', texA);
+
+        if (state.invertAll) {
+          RR = 255 - RR;
+          GG = 255 - GG;
+          BB = 255 - BB;
+          AA = 255 - AA;
+        }
+
+        if (noiseOn) {
+          let allow = true;
+          if (state.noise.maskAlpha) {
+            allow = sa > 0;
+          }
+          if (allow) {
+            const n = MERS.NoiseGenerator.getNoise(x / state.noise.scale, y / state.noise.scale) * state.noise.amp;
+            const skew = n - state.noise.amp / 2;
+            if (state.noise.channel === 'r') RR = clamp(RR + skew);
+            if (state.noise.channel === 'g') GG = clamp(GG + skew);
+            if (state.noise.channel === 'b') BB = clamp(BB + skew);
+            if (state.noise.channel === 'a') AA = clamp(AA + skew);
+          }
+        }
+
+        R[i] = RR;
+        R[i + 1] = GG;
+        R[i + 2] = BB;
+        R[i + 3] = AA;
+      }
+    }
+    
+    state.out = result;
+    MERS.PaintTool.applyPaintOnOut();
+    MERS.PreviewManager.drawPreview();
+    MERS.HistogramManager.drawHistogram();
+  }
+
+  function rebuildRefColorMap() {
+    const state = MERS.StateManager.getState();
+    state.refMapByColor = null;
+    if (!state.src || !state.ref) return;
+    
+    const w = state.src.width, h = state.src.height;
+    const refRes = MERS.ImageProcessor.resampleImageData(state.ref, w, h);
+    state.refRes = refRes;
+    const S = state.src.data, R = refRes.data;
+    const map = new Map();
+    
+    for (let i = 0; i < w * h * 4; i += 4) {
+      const key = S[i] + ',' + S[i + 1] + ',' + S[i + 2] + ',' + S[i + 3];
+      if (!map.has(key)) {
+        map.set(key, [R[i], R[i + 1], R[i + 2], R[i + 3]]);
+      }
+    }
+    state.refMapByColor = { map: map, w: w, h: h };
+  }
+
+  return {
+    recompute,
+    rebuildRefColorMap
+  };
+})();
+
+/***********************
+ * Application Initialization *
+ ***********************/
+MERS.App = (function() {
+  'use strict';
+  
+  function initialize() {
+    // Set up histogram dragging
+    MERS.HistogramManager.makeHistogramDraggable();
+    
+    // Initialize curves
+    MERS.CurvesEditor.drawAllCurves();
+    
+    // Update UI state
+    MERS.UIManager.updateRefControls();
+    MERS.UIManager.setGrayscale(false);
+    
+    // Bind all event listeners
+    MERS.UIManager.bindEventListeners();
+    
+    // Initialize paint tool buttons
+    MERS.PaintTool.updateUndoRedoButtons();
+    MERS.PaintTool.updateSelectionButtons();
+
+    // Expose global helpers for compatibility
+    window.__initPaintLayer = MERS.PaintTool.initPaintLayer;
+    window.__applyPaintOnOut = MERS.PaintTool.applyPaintOnOut;
+    
+    // Start selection animation loop
+    function animateSelection() {
+      MERS.PaintTool.drawSelectionOverlay();
+      requestAnimationFrame(animateSelection);
+    }
+    animateSelection();
+  }
+
+  return {
+    initialize
+  };
+})();
+
+// Initialize the application when DOM is loaded
+window.addEventListener('load', () => {
+  MERS.App.initialize();
+});
+
+</script>
+
+<!-- JSZip for ZIP export -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+  <!-- Attribution footer -->
+  <div style="text-align:center; color: var(--muted); font-size: 11px; padding: 12px 0;">
+    Made with GPT&nbsp;5 and Claude&nbsp;AI
+  </div>
+
+
+<script>
+// --- Layers: state + UI + patching modules (non-destructive) ---
+(function(){
+  // Helper: safe get of modules
+  function ready(fn){
+    if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn);
+  }
+  ready(function(){
+    if (!window.MERS || !MERS.StateManager) return;
+
+    const st = MERS.StateManager.getState();
+    // Add default layers state if missing
+    st.layers = st.layers || {
+      brush:  { visible: true },
+      bucket: { visible: true },
+      sliders:{ visible: true },
+      curves: { visible: true },
+      noise:  { visible: true }
+    };
+
+    // Patch PaintTool to support separate Brush/Bucket layers (non-breaking)
+    (function patchPaint(){
+      const PT = MERS.PaintTool;
+      if (!PT) return;
+
+      // Keep references to original functions when needed
+      const origInit = PT.initPaintLayer;
+      const origApply = PT.applyPaintOnOut;
+      const origPaintAt = PT.paintAt;
+      const origBucket = PT.bucketFillAt;
+
+      // Extend paint state with dual layers
+      PT.initPaintLayer = function(w, h){
+        const ps = MERS.StateManager.getPaintState();
+        function makeImageData(w,h){
+          try { return new ImageData(new Uint8ClampedArray(w*h*4), w, h); }
+          catch(e){ const arr=new Uint8ClampedArray(w*h*4); return {data:arr,width:w,height:h}; }
+        }
+        function makeMask(w,h){
+          try { return new Uint8Array(w*h); }
+          catch(e){ return new Array(w*h).fill(0); }
+        }
+        ps.layerBrush  = makeImageData(w,h);
+        ps.layerBucket = makeImageData(w,h);
+        ps.maskBrush   = makeMask(w,h);
+        ps.maskBucket  = makeMask(w,h);
+        // Maintain legacy fields pointing to Brush so existing UI continues to work
+        ps.layer = ps.layerBrush;
+        ps.mask  = ps.maskBrush;
+        ps.selection = makeMask(w,h);
+        ps.undoStack = ps.undoStack || [];
+        ps.redoStack = ps.redoStack || [];
+      };
+
+      // Composite: bucket under brush; honor visibility toggles
+      PT.applyPaintOnOut = function(){
+        const state = MERS.StateManager.getState();
+        const ps = MERS.StateManager.getPaintState();
+        if (!state.out) return;
+        const outD = state.out.data;
+
+        function apply(lay, mask){
+          if (!lay || !mask) return;
+          const w = state.out.width, h = state.out.height;
+          const L = lay.data;
+          for (let p = 0; p < w*h; p++){
+            const m = mask[p];
+            if (!m) continue;
+            const i = p*4;
+            if (m & 1) outD[i+0] = L[i+0];
+            if (m & 2) outD[i+1] = L[i+1];
+            if (m & 4) outD[i+2] = L[i+2];
+            if (m & 8) outD[i+3] = L[i+3];
+          }
+        }
+
+        // order: bucket then brush
+        if (state.layers.bucket.visible) apply(ps.layerBucket, ps.maskBucket);
+        if (state.layers.brush.visible)  apply(ps.layerBrush,  ps.maskBrush);
+      };
+
+      // Re-implement paintAt to target Brush layer only (brush tool)
+      PT.paintAt = function(e){
+        const state = MERS.StateManager.getState();
+        const ps = MERS.StateManager.getPaintState();
+        if (!state.out || !ps.layerBrush) return;
+        const mode = state.mode;
+        if (!(mode === 'r' || mode === 'g' || mode === 'b' || mode === 'a')) return;
+
+        // Helpers from existing module
+        const chInfo = MERS.PaintTool.chInfo;
+        const activeChannel = MERS.PaintTool.activeChannel;
+        const mapEventToOutImage = MERS.PaintTool.mapEventToOutImage;
+
+        const ch = activeChannel(); if (!ch) return;
+        const {off, bit} = chInfo(ch);
+        const coord = mapEventToOutImage(e); if (!coord) return;
+
+        const w = ps.layerBrush.width, h = ps.layerBrush.height;
+        const size = ps.size || 1;
+        const px = coord.x, py = coord.y;
+        const col = [ps.color.r, ps.color.g, ps.color.b, ps.color.a][off];
+
+        for (let dy=0; dy<size; dy++){
+          const y = py + dy; if (y<0 || y>=h) continue;
+          for (let dx=0; dx<size; dx++){
+            const x = px + dx; if (x<0 || x>=w) continue;
+            const i = (y*w + x)*4, p = (y*w + x);
+            ps.layerBrush.data[i+off] = col;
+            ps.maskBrush[p] = (ps.maskBrush[p] | bit);
+          }
+        }
+        // Re-apply overlays & refresh
+        PT.applyPaintOnOut();
+        MERS.PreviewManager.drawPreview();
+      };
+
+      // Flood fill now targets Bucket layer
+      PT.bucketFillAt = function(e){
+        const state = MERS.StateManager.getState();
+        const ps = MERS.StateManager.getPaintState();
+        if (!state.out || !ps.layerBucket) return;
+
+        const chInfo = MERS.PaintTool.chInfo;
+        const activeChannel = MERS.PaintTool.activeChannel;
+        const mapEventToOutImage = MERS.PaintTool.mapEventToOutImage;
+
+        const ch = activeChannel(); if (!ch) return;
+        const {off, bit} = chInfo(ch);
+        const coord = mapEventToOutImage(e); if (!coord) return;
+
+        const w = state.out.width, h = state.out.height;
+        const data = state.out.data; // use current out to determine target region
+        const L = ps.layerBucket.data;
+        const idx0 = (coord.y * w + coord.x) * 4;
+        const targetV = data[idx0 + off];
+        const newV = [ps.color.r, ps.color.g, ps.color.b, ps.color.a][off];
+        if (targetV === newV) return;
+
+        const seen = new Uint8Array(w*h);
+        const stack = [idx0];
+        seen[(idx0/4)|0] = 1;
+        const pushIf = (i)=>{
+          const p = (i/4)|0;
+          if (seen[p]) return;
+          if (data[i+off] === targetV){ seen[p]=1; stack.push(i); }
+        };
+
+        while (stack.length){
+          const i = stack.pop();
+          const p = (i/4)|0;
+          data[i+off] = newV;    // update preview immediately
+          L[i+off] = newV;       // write to bucket layer
+          ps.maskBucket[p] = (ps.maskBucket[p] | bit);
+          const x = p % w, y = (p / w) | 0;
+          if (x>0)     pushIf(i-4);
+          if (x<w-1)   pushIf(i+4);
+          if (y>0)     pushIf(i-4*w);
+          if (y<h-1)   pushIf(i+4*w);
+        }
+        PT.applyPaintOnOut();
+        MERS.PreviewManager.drawPreview();
+        MERS.HistogramManager.drawHistogram();
+      };
+
+    })();
+
+    // Patch Curves evaluation to allow visibility toggle
+    (function patchCurves(){
+      if (!MERS.CurvesEditor) return;
+      const origEval = MERS.CurvesEditor.evalCurveAt;
+      MERS.CurvesEditor.evalCurveAt = function(ch, x){
+        const s = MERS.StateManager.getState();
+        if (s.layers && s.layers.curves && s.layers.curves.visible === false) return x; // identity
+        return origEval(ch, x);
+      };
+    })();
+
+    // Wrap Core.recompute to optionally bypass Sliders & Noise
+    (function patchCore(){
+      if (!MERS.Core) return;
+      const orig = MERS.Core.recompute;
+      MERS.Core.recompute = function(){
+        const s = MERS.StateManager.getState();
+        // Save and possibly neutralize sliders + noise
+        const saved = JSON.parse(JSON.stringify({ sliders: s.sliders, noise: s.noise }));
+        if (s.layers && s.layers.sliders && s.layers.sliders.visible === false){
+          // Set identity sliders
+          s.sliders = {
+            r:{ base:0, infl:100, bright:0, contrast:100, invert:false },
+            g:{ base:0, infl:100, bright:0, contrast:100, invert:false },
+            b:{ base:0, infl:100, bright:0, contrast:100, invert:false },
+            a:{ base:0, infl:100, bright:0, contrast:100, invert:false }
+          };
+        }
+        if (s.layers && s.layers.noise && s.layers.noise.visible === false){
+          s.noise = Object.assign({}, s.noise, { enabled:false });
+        }
+        try {
+          orig();
+        } finally {
+          // Restore
+          if (saved.sliders) s.sliders = saved.sliders;
+          if (saved.noise)   s.noise = saved.noise;
+        }
+      };
+    })();
+
+    // --- UI wiring for the eye toggles
+    function setEye(btn, on){
+      btn.classList.toggle('off', !on);
+      btn.textContent = on ? '👁' : '🚫';
+    }
+    const mapping = [
+      ['layer_vis_brush',  'brush'],
+      ['layer_vis_bucket', 'bucket'],
+      ['layer_vis_sliders','sliders'],
+      ['layer_vis_curves', 'curves'],
+      ['layer_vis_noise',  'noise']
+    ];
+    mapping.forEach(([id,key])=>{
+      const el = document.getElementById(id);
+      if (!el) return;
+      // Init
+      setEye(el, st.layers[key].visible !== false);
+      el.addEventListener('click', function(){
+        const cur = !!st.layers[key].visible;
+        st.layers[key].visible = !cur;
+        setEye(el, !cur);
+        // Recompute vs redraw
+        if (key==='brush' || key==='bucket'){
+          // just redraw overlays
+          if (MERS.StateManager.getState().out){
+            MERS.Core.recompute(); // ensure consistent overlay after toggles
+          }
+        } else {
+          MERS.Core.recompute();
+        }
+      });
+    });
+
+  }); // ready
+})();
+</script>
+
+</body>
+</html>
