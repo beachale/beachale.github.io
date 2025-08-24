@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<style id="hide-upscaled-tolerance">#upTolWrapLeft, #upTolWrapTop { display: none !important; }</style>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>MERS Texture Lab – Clean Rebuild</title>
@@ -137,6 +138,7 @@
           <select id="refMatchLeft" class="btn refMatchSel">
             <option value="color">Match colors</option>
             <option value="pixel">Match by pixel</option>
+              <option value="upscaled_v2">Upscaled</option>
           </select>
           <label class="switch"><input id="invertAll" type="checkbox"> Invert all channels</label>
           <label class="switch"><input id="grayscaleMode" type="checkbox"> Grayscale channel preview</label>
@@ -298,6 +300,7 @@
             <select id="refMatchTop" class="btn refMatchSel">
               <option value="color">Match colors</option>
               <option value="pixel">Match by pixel</option>
+              <option value="upscaled_v2">Upscaled</option>
             </select>
             <label class="switch"><input id="grayscaleTop" type="checkbox"> Grayscale</label>
             <button class="btn icon" id="zoomOut">−</button>
@@ -3044,5 +3047,195 @@ window.addEventListener('load', () => {
 })();
 
 </script>
+
+
+
+
+
+
+
+<!-- UPSCALED_V1V2_PATCH_START -->
+<script>
+(function() {
+  function ready(fn) { if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+  ready(function() {
+    if (!window.MERS || !MERS.StateManager || !MERS.Core || !MERS.ImageProcessor) return;
+
+    
+    // Coerce legacy selection
+    try { if (MERS.StateManager.getState().refMatch === 'upscaled_v1') MERS.StateManager.getState().refMatch = 'upscaled_v2'; } catch(_) {}
+// ---- Ensure only V2 exists; remove V1 if present ----
+    document.querySelectorAll('select.refMatchSel').forEach(sel => {
+      // remove any V1 option
+      [...sel.options].forEach((o, i) => { if (o.value === 'upscaled_v1') sel.remove(i); });
+      // ensure V2 exists
+      const hasV2 = [...sel.options].some(o => o.value === 'upscaled_v2');
+      if (!hasV2) sel.add(new Option('Upscaled V2 (tolerant)', 'upscaled_v2'));
+    });
+
+    // (Removed) Upscaled tolerance UI was removed at user request.
+function showTolFor(mode){ /* no UI */ }
+const st = MERS.StateManager.getState();
+if (typeof st.upTol !== 'number') st.upTol = 0;
+
+// ---- Downscale helper (2×2 modal) ----
+    function downscaleMode2x(imgd) {
+      const W = imgd.width, H = imgd.height;
+      const w = Math.max(1, Math.floor(W/2)), h = Math.max(1, Math.floor(H/2));
+      const out = new ImageData(w,h);
+      const S = imgd.data, R = out.data;
+      for (let y=0;y<h;y++) {
+        for (let x=0;x<w;x++) {
+          const counts = new Map();
+          for (let dy=0; dy<2; dy++) {
+            for (let dx=0; dx<2; dx++) {
+              const sx = Math.min(W-1, x*2+dx), sy = Math.min(H-1, y*2+dy);
+              const i = (sy*W+sx)*4;
+              const key = S[i]+','+S[i+1]+','+S[i+2]+','+S[i+3];
+              counts.set(key, (counts.get(key)||0)+1);
+            }
+          }
+          let bestKey = null, bestCount = -1;
+          for (const [k,c] of counts.entries()) { if (c>bestCount) { bestCount=c; bestKey=k; } }
+          const [r,g,b,a] = bestKey.split(',').map(Number);
+          const o = (y*w+x)*4; R[o]=r; R[o+1]=g; R[o+2]=b; R[o+3]=a;
+        }
+      }
+      return out;
+    }
+
+    // ---- Strict 1:1 mapping like the Python script ----
+    function buildStrictMap(src16, ref16) {
+      const S = src16.data, R = ref16.data;
+      if (src16.width !== ref16.width || src16.height !== ref16.height) return { error: 'Mismatched 16× dimensions' };
+      const seen = new Map(); // src rgba key -> Set of target keys
+      const toKey = (arr,i)=> arr[i]+','+arr[i+1]+','+arr[i+2]+','+arr[i+3];
+      for (let i=0;i<S.length;i+=4) {
+        const sk = toKey(S,i), rk = toKey(R,i);
+        if (!seen.has(sk)) seen.set(sk, new Set([rk]));
+        else seen.get(sk).add(rk);
+      }
+      const mapping = new Map();
+      for (const [sk, set] of seen.entries()) {
+        if (set.size > 1) return { error: 'Inconsistent color mapping between 16× PNG and 16× TGA' };
+        mapping.set(sk, [...set][0]);
+      }
+      return { mapping };
+    }
+
+    function hasOnlyKnownColors(pixels32, palette16Keys, tol) {
+      // pixels32: ImageData of 32× src
+      const d = pixels32.data;
+      for (let i=0;i<d.length;i+=4) {
+        const sk = d[i]+','+d[i+1]+','+d[i+2]+','+d[i+3];
+        // exact or tolerant presence in 16× palette
+        if (palette16Keys.has(sk)) continue;
+        if (tol > 0) {
+          let ok = false;
+          for (const k of palette16Keys) {
+            const [R,G,B,A] = k.split(',').map(Number);
+            if (Math.abs(R-d[i])<=tol && Math.abs(G-d[i+1])<=tol && Math.abs(B-d[i+2])<=tol && Math.abs(A-d[i+3])<=tol) { ok = True; break; }
+          }
+          if (ok) continue;
+        }
+        return false;
+      }
+      return true;
+    }
+
+    // Wrap rebuildRefColorMap to support both V1 and V2
+    const _origRebuild = MERS.Core.rebuildRefColorMap;
+    MERS.Core.rebuildRefColorMap = function() {
+      const state = MERS.StateManager.getState();
+      state.refMapByColor = null;
+      if (!state.src || !state.ref) return;
+
+      const w = state.src.width, h = state.src.height;
+      state.refRes = MERS.ImageProcessor.resampleImageData(state.ref, w, h); // needed for pixel mode
+
+      if (state.refMatch === 'upscaled_v2') {
+        const baseW = Math.max(1, Math.floor(w/2)), baseH = Math.max(1, Math.floor(h/2));
+        const src16 = downscaleMode2x(state.src); // proxy for 16× PNG
+        const ref16 = MERS.ImageProcessor.resampleImageData(state.ref, baseW, baseH);
+
+        
+
+        if (state.refMatch === 'upscaled_v2') {
+          // TOLERANT variant (previous implementation)
+          const S = src16.data, R = ref16.data;
+          const votes = new Map();  // srcKey -> Map(tgtKey->count)
+          const toKey = (arr,i)=> arr[i]+','+arr[i+1]+','+arr[i+2]+','+arr[i+3];
+          for (let i=0;i<baseW*baseH*4;i+=4) {
+            const sk = toKey(S,i), rk = toKey(R,i);
+            if (!votes.has(sk)) votes.set(sk, new Map());
+            const inner = votes.get(sk);
+            inner.set(rk, (inner.get(rk)||0)+1);
+          }
+          const baseMap = new Map();
+          const srcKeys = [];
+          for (const [sk, inner] of votes.entries()) {
+            let best = null, bestN = -1;
+            for (const [rk, n] of inner.entries()) { if (n>bestN) { bestN=n; best=rk; } }
+            baseMap.set(sk, best.split(',').map(Number));
+            srcKeys.push(sk);
+          }
+          const upscaledMap = {
+            _m: baseMap,
+            _keys: srcKeys,
+            get: function(key) {
+              const hit = this._m.get(key);
+              if (hit) return hit;
+              const tol = (MERS.StateManager.getState().upTol|0) || 0;
+              if (tol <= 0) return undefined;
+              const [r,g,b,a] = key.split(',').map(Number);
+              let res = undefined;
+              for (let i=0;i<this._keys.length;i++) {
+                const k = this._keys[i];
+                const [R,G,B,A] = k.split(',').map(Number);
+                if (Math.abs(R-r) <= tol && Math.abs(G-g) <= tol && Math.abs(B-b) <= tol && Math.abs(A-a) <= tol) {
+                  res = this._m.get(k);
+                  this._m.set(key, res);
+                  break;
+                }
+              }
+              return res;
+            }
+          };
+          state.refMapByColor = { map: upscaledMap, w: baseW, h: baseH, upscaled_v2: true };
+          return;
+        }
+      }
+
+      // Other modes: original
+      return _origRebuild.call(MERS.Core);
+    };
+
+    function onSelectChange(el) {
+      const s = MERS.StateManager.getState();
+      s.refMatch = el.value;
+      document.querySelectorAll('.refMatchSel').forEach(sel => sel.value = s.refMatch);
+      showTolFor(s.refMatch);
+      MERS.Core.rebuildRefColorMap();
+      MERS.Core.recompute();
+    }
+    function wireSelect(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', () => onSelectChange(el), { capture: true });
+    }
+    wireSelect('refMatchLeft');
+    wireSelect('refMatchTop');
+
+    // Initial state/visibility
+    const currentSel = document.getElementById('refMatchLeft') || document.getElementById('refMatchTop');
+    const mode = currentSel ? currentSel.value : (MERS.StateManager.getState().refMatch || 'color');
+    showTolFor(mode);
+    MERS.Core.rebuildRefColorMap();
+    MERS.Core.recompute();
+  });
+})();
+</script>
+<!-- UPSCALED_V1V2_PATCH_END -->
+
 </body>
 </html>
