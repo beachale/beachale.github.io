@@ -3239,3 +3239,135 @@ if (typeof st.upTol !== 'number') st.upTol = 0;
 
 </body>
 </html>
+
+
+<!-- === Patch: Sync Original texture canvas (src) with pan/zoom & picking === -->
+<script>
+(function(){
+  function ready(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+  ready(function(){
+    if (!window.MERS || !MERS.PreviewManager) return;
+
+    // Give the Original texture wrapper a stable id and fixed height like the top previews
+    (function ensureSrcWrap(){
+      const wrap = document.getElementById('canvasSrc')?.closest('.canvasWrap');
+      if (wrap && !wrap.id) wrap.id = 'wrapSrc';
+      const st = document.createElement('style');
+      st.textContent = '#wrapSrc{height:384px;}';
+      document.head.appendChild(st);
+    })();
+
+    // Draw the Original (src) canvas using the same pan/zoom/frame transform
+    (function patchDrawPreview(){
+      const orig = MERS.PreviewManager.drawPreview;
+      MERS.PreviewManager.drawPreview = function(){
+        orig && orig.apply(this, arguments);
+
+        const state = MERS.StateManager.getState();
+        if (!state || !state.src) return;
+
+        const cs = document.getElementById('canvasSrc');
+        if (!cs) return;
+        const ctx = cs.getContext('2d');
+
+        // Resize backing store to CSS size
+        const rect = cs.getBoundingClientRect();
+        const wcss = Math.round(rect.width), hcss = Math.round(rect.height);
+        if (cs.width !== wcss || cs.height !== hcss) { cs.width = wcss; cs.height = hcss; }
+
+        // Clear
+        ctx.save();
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.clearRect(0,0,cs.width,cs.height);
+
+        // Compute transform (identical to OUT/REF)
+        const sw = state.src.width, sh = state.src.height;
+        const frameW = state.anim.w || sw, frameH = state.anim.h || sh;
+        const frames = Math.max(1, Math.floor(sh / frameH));
+        const frameY = state.anim.on ? state.anim.i * frameH : Math.min(state.anim.i, frames - 1) * frameH;
+        const viewW = Math.min(frameW, sw), viewH = Math.min(frameH, sh - frameY);
+        const fit = Math.min(cs.width / viewW, cs.height / viewH);
+        const scale = fit * state.zoom;
+        const dx = Math.round((cs.width - viewW * scale) / 2 + state.panX);
+        const dy = Math.round((cs.height - viewH * scale) / 2 + state.panY);
+
+        // Render according to current preview mode (RGBA or single channel tint/grayscale)
+        const tmp = document.createElement('canvas');
+        tmp.width = sw; tmp.height = sh;
+        tmp.getContext('2d').putImageData(MERS.ImageProcessor.renderForMode(state.src, state.mode, state.grayscale), 0, 0);
+
+        ctx.setTransform(scale, 0, 0, scale, dx, dy);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(tmp, 0, frameY, viewW, viewH, 0, 0, viewW, viewH);
+        ctx.restore();
+      };
+    })();
+
+    // Make color picking on the Original (src) canvas use the same pan/zoom mapping
+    (function patchPickColor(){
+      if (!MERS.PaintTool || typeof MERS.PaintTool.pickColorFromEvent !== 'function') return;
+      MERS.PaintTool.pickColorFromEvent = function(e, imgType){
+        const state = MERS.StateManager.getState();
+        const paintState = MERS.StateManager.getPaintState();
+        let imgd = null, canvas = null;
+        if (imgType === 'ref' && state.ref) {
+          imgd = state.ref; canvas = document.getElementById('canvasRef');
+        } else if (imgType === 'src' && state.src) {
+          imgd = state.src; canvas = document.getElementById('canvasSrc');
+        } else if (imgType === 'out' && state.out) {
+          imgd = state.out; canvas = document.getElementById('canvasOut');
+        }
+        if (!imgd || !canvas) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const xCanvas = e.clientX - rect.left;
+        const yCanvas = e.clientY - rect.top;
+
+        const w = imgd.width, h = imgd.height;
+        const frameW = state.anim.w || w;
+        const frameH = state.anim.h || h;
+        const frames = Math.max(1, Math.floor(h / frameH));
+        const frameY = state.anim.on ? state.anim.i * frameH : Math.min(state.anim.i, frames - 1) * frameH;
+        const viewW = Math.min(frameW, w);
+        const viewH = Math.min(frameH, h - frameY);
+
+        const fit = Math.min(rect.width / viewW, rect.height / viewH);
+        const scale = fit * state.zoom;
+        const dx = Math.round((rect.width - viewW * scale) / 2 + state.panX);
+        const dy = Math.round((rect.height - viewH * scale) / 2 + state.panY);
+
+        const ix = (xCanvas - dx) / scale;
+        const iy = (yCanvas - dy) / scale;
+
+        const xImg = Math.floor(ix + 1e-9);
+        const yImg = Math.floor(iy + 1e-9) + frameY;
+        if (xImg < 0 || xImg >= w || yImg < 0 || yImg >= h) return;
+
+        const idx = (yImg * w + xImg) * 4, data = imgd.data;
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3];
+
+        // Respect current channel mode; RGBA does not pick
+        const mode = state && state.mode;
+        if (!paintState || !mode || mode === 'rgba') return;
+
+        const getAlpha = () => (paintState.copyAlpha ? a : 255);
+        let newColor;
+        switch (mode) {
+          case 'r': newColor = { r, g: 0, b: 0, a: getAlpha() }; break;
+          case 'g': newColor = { r: 0, g, b: 0, a: getAlpha() }; break;
+          case 'b': newColor = { r: 0, g: 0, b, a: getAlpha() }; break;
+          case 'a': newColor = { r: 0, g: 0, b: 0, a: getAlpha() }; break;
+          default: return;
+        }
+        paintState.color = newColor;
+
+        const colorInput = document.getElementById('brushColor');
+        if (colorInput) {
+          const toHex = v => ('0' + Math.max(0, Math.min(255, v)).toString(16)).slice(-2);
+          colorInput.value = '#' + toHex(newColor.r) + toHex(newColor.g) + toHex(newColor.b);
+        }
+      };
+    })();
+  });
+})();
+</script>
