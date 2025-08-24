@@ -2894,5 +2894,155 @@ window.addEventListener('load', () => {
 })();
 </script>
 
+<!-- === Patch: Right‑canvas color select uses REF pixels and mirrors mask to OUT (REPLACE) === -->
+<script>
+
+(function(){
+  if (!window.MERS || !MERS.StateManager || !MERS.PaintTool) return;
+
+  function getState(){ return MERS.StateManager.getState(); }
+  function getPaint(){ return MERS.StateManager.getPaintState(); }
+
+  function mapEventToRefImage(e){
+    const st = getState();
+    if (!st || !st.ref) return null;
+    const ref = document.getElementById('canvasRef');
+    const rect = ref.getBoundingClientRect();
+    const client = ('clientX' in e) ? {x: e.clientX, y: e.clientY} :
+                   (e.touches && e.touches[0]) ? {x: e.touches[0].clientX, y: e.touches[0].clientY} :
+                   null;
+    if (!client) return null;
+    const xCanvas = client.x - rect.left;
+    const yCanvas = client.y - rect.top;
+
+    const w = st.ref.width, h = st.ref.height;
+    const frameW = st.anim.w || w;
+    const frameH = st.anim.h || h;
+    const frames = Math.max(1, Math.floor(h / frameH));
+    const frameIndex = st.anim.on ? st.anim.i : Math.min(st.anim.i, frames - 1);
+    const frameY = frameIndex * frameH;
+
+    const viewW = Math.min(frameW, w);
+    const viewH = Math.min(frameH, h - frameY);
+    const fit = Math.min(rect.width / viewW, rect.height / viewH);
+    const scale = fit * st.zoom;
+    const dx = Math.round((rect.width - viewW * scale) / 2 + st.panX);
+    const dy = Math.round((rect.height - viewH * scale) / 2 + st.panY);
+
+    const ix = (xCanvas - dx) / scale;
+    const iy = (yCanvas - dy) / scale;
+    const xImg = Math.floor(ix + 1e-9);
+    const yImg = Math.floor(iy + 1e-9) + frameY;
+    if (isNaN(xImg) || isNaN(yImg)) return null;
+    if (xImg < 0 || xImg >= w || yImg < 0 || yImg >= h) return null;
+    return { x: xImg, y: yImg, frameY, frameH, frameW };
+  }
+
+  function isSingleChannel(st){
+    return st && (st.mode === 'r' || st.mode === 'g' || st.mode === 'b' || st.mode === 'a');
+  }
+
+  // Select by color from REF image; apply mask to selection (mirrored to OUT overlay)
+  function selectByColorFromREFReplace(e){
+    const st = getState();
+    const ps = getPaint();
+    if (!(ps && ps.select && isSingleChannel(st))) return false;
+    if (!st.ref || !st.out || !ps.selection) return false;
+
+    const coord = mapEventToRefImage(e);
+    if (!coord) return false;
+
+    const refD = st.ref.data;
+    const outW = st.out.width, outH = st.out.height;
+    const refW = st.ref.width, refH = st.ref.height;
+    const sameSize = (outW === refW) && (outH === refH);
+    if (!sameSize) {
+      // Basic guard: if sizes differ, bail to avoid misalignment
+      console.warn("[Patch] REF/OUT dimensions differ; selection aborted.");
+      return false;
+    }
+
+    // Determine channel offset
+    const chInfo = MERS.PaintTool.chInfo;
+    const { off } = chInfo(st.mode);
+
+    // Target value at clicked REF pixel
+    const idxRef = (coord.y * refW + coord.x) * 4;
+    const target = refD[idxRef + off];
+
+    const sel = ps.selection;
+
+    // Clear previous selection (REPLACE semantics)
+    if (sel.fill) sel.fill(0);
+    else for (let i = 0; i < sel.length; i++) sel[i] = 0;
+
+    // Limit to current frame bounds (mirror left-canvas behavior on spritesheets)
+    const yStart = coord.frameY;
+    const yEnd   = Math.min(coord.frameY + coord.frameH, refH);
+    const xStart = 0;
+    const xEnd   = Math.min(coord.frameW, refW);
+
+    // Build selection mask from REF pixels only
+    for (let y = yStart; y < yEnd; y++) {
+      let rowIdx = y * refW;
+      for (let x = xStart; x < xEnd; x++) {
+        const p = rowIdx + x;
+        const i = p * 4;
+        if (refD[i + off] === target) sel[p] = 1;
+      }
+    }
+
+    if (MERS.PaintTool.drawSelectionOverlay) MERS.PaintTool.drawSelectionOverlay();
+    if (MERS.PaintTool.updateSelectionButtons) MERS.PaintTool.updateSelectionButtons();
+    return true;
+  }
+
+  // Hook right-canvas events: trigger on pointerdown and block conflicting handlers on release
+  (function attachHandlers(){
+    const ref = document.getElementById('canvasRef');
+    if (!ref) return;
+
+    const opts = { capture: true, passive: false };
+    const handler = function(e){
+      const ok = selectByColorFromREFReplace(e);
+      if (ok) {
+        e.stopImmediatePropagation();
+        if (typeof e.preventDefault === 'function') e.preventDefault();
+        return false;
+      }
+    };
+    const block = function(e){
+      const st = getState(), ps = getPaint();
+      if (ps && ps.select && isSingleChannel(st)) {
+        e.stopImmediatePropagation();
+        if (typeof e.preventDefault === 'function') e.preventDefault();
+        return false;
+      }
+    };
+
+    ref.addEventListener('pointerdown', handler, opts);
+    ref.addEventListener('mousedown', handler, opts);
+    ref.addEventListener('touchstart', handler, opts);
+
+    ref.addEventListener('pointerup', block, opts);
+    ref.addEventListener('mouseup', block, opts);
+    ref.addEventListener('click', block, opts);
+    ref.addEventListener('touchend', block, opts);
+    ref.addEventListener('pointercancel', block, opts);
+
+    // Cursor sync
+    const btn = document.getElementById('toggleSelect');
+    const sync = ()=>{
+      try {
+        const ps = getPaint();
+        ref.style.cursor = (ps && ps.select) ? 'crosshair' : 'default';
+      } catch(_){}
+    };
+    if (btn) btn.addEventListener('click', sync);
+    setTimeout(sync, 0);
+  })();
+})();
+
+</script>
 </body>
 </html>
