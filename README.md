@@ -1,6 +1,8 @@
 # MC-Texture-to-MERS tool - Vibecoded using Chat GPT 5 and Claude AI (Opus, Sonnet)
 Converts a Minecraft texture to a MERS .tga with modifiable RGBA values for Vibrant Visuals.
 
+https://beachale.github.io/
+
 Has many features:
 Can optionally load a vanilla mers and map the values onto the mers you're creating.
 Does not fully support upscaled textures like intended. Coming soon.
