@@ -3261,6 +3261,315 @@ if (typeof st.upTol !== 'number') st.upTol = 0;
 </script>
 <!-- UPSCALED_V1V2_PATCH_END -->
 
+
+<script>
+function parseTGA(view) {
+  // --- Header ---
+  const idLen = view.getUint8(0);
+  const cmType = view.getUint8(1);        // 0 = none, 1 = has color map
+  const imageType = view.getUint8(2);     // 1/9 = color-mapped, 2/10 = truecolor, 3/11 = grayscale
+  const cmFirst = view.getUint16(3, true);
+  const cmLen   = view.getUint16(5, true);
+  const cmBpp   = view.getUint8(7);       // bits per palette entry
+  const width   = view.getUint16(12, true);
+  const height  = view.getUint16(14, true);
+  const bpp     = view.getUint8(16);      // bits per pixel of image data
+  const desc    = view.getUint8(17);
+  const originTop = (desc & 0x20) !== 0;
+
+  let p = 18 + idLen; // skip ID field
+
+  // --- Palette (if present) ---
+  let palette = null;
+  if (cmType === 1 && cmLen > 0) {
+    palette = new Array(cmFirst + cmLen);
+    for (let i = 0; i < cmLen; i++) {
+      if (cmBpp === 24 || cmBpp === 32) {
+        const B = view.getUint8(p++), G = view.getUint8(p++), R = view.getUint8(p++);
+        const A = (cmBpp === 32) ? view.getUint8(p++) : 255;
+        palette[cmFirst + i] = [R, G, B, A];
+      } else if (cmBpp === 15 || cmBpp === 16) {
+        const v = view.getUint16(p, true); p += 2;
+        // 5-5-5 (BGR). Treat attribute bit as opaque.
+        const B = ((v       & 0x1F) * 255 + 15) / 31 | 0;
+        const G = (((v>>5)  & 0x1F) * 255 + 15) / 31 | 0;
+        const R = (((v>>10) & 0x1F) * 255 + 15) / 31 | 0;
+        palette[cmFirst + i] = [R, G, B, 255];
+      } else {
+        throw new Error('Unsupported TGA palette entry size');
+      }
+    }
+  }
+
+  // Helpers
+  const out = new Uint8ClampedArray(width * height * 4);
+  function writePixel(y, x, r, g, b, a) {
+    const row = originTop ? y : (height - 1 - y);
+    const i = (row * width + x) * 4;
+    out[i] = r; out[i+1] = g; out[i+2] = b; out[i+3] = a;
+  }
+
+  function readTruecolorPixel() {
+    if (bpp === 24) {
+      const B = view.getUint8(p++), G = view.getUint8(p++), R = view.getUint8(p++);
+      return [R, G, B, 255];
+    } else if (bpp === 32) {
+      const B = view.getUint8(p++), G = view.getUint8(p++), R = view.getUint8(p++), A = view.getUint8(p++);
+      return [R, G, B, A];
+    }
+    throw new Error('Unsupported truecolor bpp');
+  }
+
+  function readIndexedPixel() {
+    if (bpp !== 8 || !palette) throw new Error('Unsupported indexed TGA');
+    const idx = view.getUint8(p++);
+    const px = palette[idx] || palette[cmFirst] || [0,0,0,255];
+    return px;
+  }
+
+  function readGrayPixel() {
+    if (bpp !== 8) throw new Error('Unsupported grayscale bpp');
+    const v = view.getUint8(p++);
+    return [v, v, v, 255];
+  }
+
+  function fillUncompressed(readOne) {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const [r,g,b,a] = readOne();
+        writePixel(y, x, r,g,b,a);
+      }
+    }
+  }
+
+  function fillRLE(readOne) {
+    let x = 0, y = 0;
+    const total = width * height;
+    let written = 0;
+    while (written < total) {
+      const header = view.getUint8(p++);
+      const count = (header & 0x7F) + 1;
+      if (header & 0x80) {
+        // run-length packet
+        const px = readOne();
+        for (let i = 0; i < count; i++) {
+          writePixel(y, x, px[0], px[1], px[2], px[3]);
+          if (++x >= width) { x = 0; y++; }
+          written++;
+        }
+      } else {
+        // raw packet
+        for (let i = 0; i < count; i++) {
+          const px = readOne();
+          writePixel(y, x, px[0], px[1], px[2], px[3]);
+          if (++x >= width) { x = 0; y++; }
+          written++;
+        }
+      }
+    }
+  }
+
+  // --- Decode by image type ---
+  switch (imageType) {
+    case 2:  fillUncompressed(readTruecolorPixel); break;       // truecolor
+    case 10: fillRLE(readTruecolorPixel); break;                // truecolor RLE
+    case 1:  fillUncompressed(readIndexedPixel); break;         // indexed
+    case 9:  fillRLE(readIndexedPixel); break;                  // indexed RLE
+    case 3:  fillUncompressed(readGrayPixel); break;            // grayscale
+    case 11: fillRLE(readGrayPixel); break;                     // grayscale RLE
+    default: throw new Error('Unsupported TGA image type');
+  }
+
+  return new ImageData(out, width, height);
+}
+
+// If the app uses a namespace, also hook it:
+try {
+  if (typeof MERS !== "undefined" && MERS.ImageProcessor) {
+    MERS.ImageProcessor.parseTGA = parseTGA;
+  }
+} catch (e) {}
+</script>
+
+<script>
+function parseTGA(view) {
+  // --- Header ---
+  const idLen = view.getUint8(0);
+  const cmType = view.getUint8(1);        // 0 = none, 1 = has color map
+  const imageType = view.getUint8(2);     // 1/9 = color-mapped, 2/10 = truecolor, 3/11 = grayscale
+  const cmFirst = view.getUint16(3, true);
+  const cmLen   = view.getUint16(5, true);
+  const cmBpp   = view.getUint8(7);       // bits per palette entry
+  const width   = view.getUint16(12, true);
+  const height  = view.getUint16(14, true);
+  const bpp     = view.getUint8(16);      // bits per pixel of image data
+  const desc    = view.getUint8(17);
+  const originTop  = (desc & 0x20) !== 0; // Bit 5: 0 = bottom, 1 = top
+  const originLeft = (desc & 0x10) === 0; // Bit 4: 0 = left-to-right, 1 = right-to-left (so true when bit=0)
+  const alphaBits  = (desc & 0x0F);       // number of attribute/alpha bits per pixel (0..8 or 0..1 for 16bpp)
+  const interleave = (desc & 0x03);       // 0 none, 1 two-way, 2 four-way
+
+  let p = 18 + idLen; // skip ID field
+
+  // --- Palette (if present) ---
+  let palette = null;
+  if (cmType === 1 && cmLen > 0) {
+    palette = new Array(cmFirst + cmLen);
+    for (let i = 0; i < cmLen; i++) {
+      if (cmBpp === 24 || cmBpp === 32) {
+        const B = view.getUint8(p++), G = view.getUint8(p++), R = view.getUint8(p++);
+        const A = (cmBpp === 32) ? view.getUint8(p++) : 255;
+        palette[cmFirst + i] = [R, G, B, A];
+      } else if (cmBpp === 15 || cmBpp === 16) {
+        const v = view.getUint16(p, true); p += 2;
+        // 5-5-5 (BGR). Attribute bit ignored (opaque).
+        const B = ((v       & 0x1F) * 255 + 15) / 31 | 0;
+        const G = (((v>>5)  & 0x1F) * 255 + 15) / 31 | 0;
+        const R = (((v>>10) & 0x1F) * 255 + 15) / 31 | 0;
+        palette[cmFirst + i] = [R, G, B, 255];
+      } else {
+        throw new Error('Unsupported TGA palette entry size');
+      }
+    }
+  }
+
+  // Helpers
+  const out = new Uint8ClampedArray(width * height * 4);
+
+  function mapRow(ySeq) {
+    // Handle interleaving (2-way and 4-way)
+    let row = ySeq;
+    if (interleave === 1) { // two-way
+      const half = Math.ceil(height / 2);
+      row = (ySeq < half) ? ySeq * 2 : (ySeq - half) * 2 + 1;
+    } else if (interleave === 2) { // four-way
+      const q = Math.ceil(height / 4);
+      if (ySeq < q) row = ySeq * 4;
+      else if (ySeq < 2*q) row = (ySeq - q) * 4 + 1;
+      else if (ySeq < 3*q) row = (ySeq - 2*q) * 4 + 2;
+      else row = (ySeq - 3*q) * 4 + 3;
+    }
+    // Vertical origin
+    row = originTop ? row : (height - 1 - row);
+    return row;
+  }
+
+  function writePixel(ySeq, xSeq, r, g, b, a) {
+    const row = mapRow(ySeq);
+    const col = originLeft ? xSeq : (width - 1 - xSeq);
+    if (row < 0 || row >= height || col < 0 || col >= width) return;
+    const i = (row * width + col) * 4;
+    out[i] = r; out[i+1] = g; out[i+2] = b; out[i+3] = a;
+  }
+
+  function expand5(v) { return ((v * 255 + 15) / 31) | 0; }
+
+  function readTruecolorPixel() {
+    if (bpp === 24) {
+      const B = view.getUint8(p++), G = view.getUint8(p++), R = view.getUint8(p++);
+      return [R, G, B, 255];
+    } else if (bpp === 32) {
+      const B = view.getUint8(p++), G = view.getUint8(p++), R = view.getUint8(p++), A = view.getUint8(p++);
+      return [R, G, B, A];
+    } else if (bpp === 16 || bpp === 15) {
+      const v = view.getUint16(p, true); p += 2;
+      const B = expand5( v        & 0x1F);
+      const G = expand5((v >> 5)  & 0x1F);
+      const R = expand5((v >> 10) & 0x1F);
+      let A = 255;
+      if (alphaBits > 0) {
+        // Use top bit as 1-bit alpha when present
+        A = (v & 0x8000) ? 255 : 0;
+      }
+      return [R, G, B, A];
+    }
+    throw new Error('Unsupported truecolor bpp');
+  }
+
+  function readIndexedPixel() {
+    if (bpp === 8) {
+      const idx = view.getUint8(p++);
+      const px = (palette && palette[idx]) || (palette && palette[cmFirst]) || [0,0,0,255];
+      return px;
+    } else if (bpp === 16) {
+      const idx = view.getUint16(p, true); p += 2;
+      const safe = Math.min(idx, (palette ? palette.length - 1 : 0));
+      const px = (palette && palette[safe]) || (palette && palette[cmFirst]) || [0,0,0,255];
+      return px;
+    }
+    throw new Error('Unsupported indexed bpp');
+  }
+
+  function readGrayPixel() {
+    if (bpp === 8) {
+      const v = view.getUint8(p++);
+      return [v, v, v, 255];
+    } else if (bpp === 16) {
+      // 8-bit intensity + 8-bit alpha (little-endian)
+      const intensity = view.getUint8(p++);
+      const a = view.getUint8(p++);
+      return [intensity, intensity, intensity, a];
+    }
+    throw new Error('Unsupported grayscale bpp');
+  }
+
+  function fillUncompressed(readOne) {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const [r,g,b,a] = readOne();
+        writePixel(y, x, r,g,b,a);
+      }
+    }
+  }
+
+  function fillRLE(readOne) {
+    let x = 0, y = 0;
+    const total = width * height;
+    let written = 0;
+    while (written < total) {
+      const header = view.getUint8(p++);
+      const count = (header & 0x7F) + 1;
+      if (header & 0x80) {
+        // run-length packet
+        const px = readOne();
+        for (let i = 0; i < count; i++) {
+          writePixel(y, x, px[0], px[1], px[2], px[3]);
+          if (++x >= width) { x = 0; y++; }
+          written++;
+        }
+      } else {
+        // raw packet
+        for (let i = 0; i < count; i++) {
+          const px = readOne();
+          writePixel(y, x, px[0], px[1], px[2], px[3]);
+          if (++x >= width) { x = 0; y++; }
+          written++;
+        }
+      }
+    }
+  }
+
+  // --- Decode by image type ---
+  switch (imageType) {
+    case 2:  fillUncompressed(readTruecolorPixel); break;       // truecolor
+    case 10: fillRLE(readTruecolorPixel); break;                // truecolor RLE
+    case 1:  fillUncompressed(readIndexedPixel); break;         // indexed
+    case 9:  fillRLE(readIndexedPixel); break;                  // indexed RLE
+    case 3:  fillUncompressed(readGrayPixel); break;            // grayscale
+    case 11: fillRLE(readGrayPixel); break;                     // grayscale RLE
+    default: throw new Error('Unsupported TGA image type');
+  }
+
+  return new ImageData(out, width, height);
+}
+
+// Hook into app namespace if present
+try {
+  if (typeof MERS !== "undefined" && MERS.ImageProcessor) {
+    MERS.ImageProcessor.parseTGA = parseTGA;
+  }
+} catch (e) {}
+</script>
 </body>
 </html>
 
