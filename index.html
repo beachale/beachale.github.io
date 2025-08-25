@@ -230,6 +230,7 @@
           <button class="btn" id="toggleBrush">🖌️ Brush: Off</button>
           <button class="btn" id="toggleBucket">🪣 Bucket: Off</button>
           <button class="btn" id="toggleSelect">🎯 Select: Off</button>
+          <button class="btn" id="toggleEyedropper">🧪 Eyedropper: Off</button>
           <button class="btn" id="fillSelection" disabled>🎨 Fill</button>
           <button class="btn small" id="clearSelection" disabled>✕ Clear</button>
           <button class="btn small" id="undoPaint" title="Undo last stroke" disabled>↺ Undo</button>
@@ -238,7 +239,7 @@
         <div class="row" style="margin-top:4px">
           <label class="switch" style="display:flex;align-items:center;gap:6px;font-size:12px;"><input id="brushCopyAlpha" type="checkbox" style="margin:0"><span>Copy transparency</span></label>
         </div>
-        <p class="muted" style="margin-top:8px">Click the right preview to pick a colour (and optionally its transparency), then paint on the left preview. Use Select tool to select pixels of the same color value in single-channel mode, then Fill to apply color to selection. Pan/zoom is disabled while tools are active.</p>
+        <p class="muted" style="margin-top:8px">With the Eyedropper, click any preview to pick a colour (and optionally its transparency), then paint on the left preview. Use Select tool to select pixels of the same color value in single-channel mode, then Fill to apply color to selection. Pan/zoom is disabled while tools are active.</p>
       </div>
 
       <div class="panel" id="layersPanel">
@@ -442,6 +443,7 @@ MERS.StateManager = (function() {
     color: { r: 255, g: 0, b: 0, a: 255 },
     bucket: false,
     select: false,
+    eyedropper: false,
     size: 1,
     layer: null,
     mask: null,
@@ -2208,6 +2210,16 @@ MERS.UIManager = (function() {
     const redoBtn = document.getElementById('redoPaint');
     const copyAlphaChk = document.getElementById('brushCopyAlpha');
 
+    
+const eyedropperBtn = document.getElementById('toggleEyedropper');
+if (eyedropperBtn) {
+  eyedropperBtn.addEventListener('click', () => {
+    const paintState = MERS.StateManager.getPaintState();
+    paintState.eyedropper = !paintState.eyedropper;
+    eyedropperBtn.textContent = paintState.eyedropper ? '🧪 Eyedropper: On' : '🧪 Eyedropper: Off';
+  });
+}
+
     if (colorInput) {
       colorInput.addEventListener('input', e => {
         const hex = e.target.value;
@@ -2373,12 +2385,22 @@ MERS.UIManager = (function() {
         const paintState = MERS.StateManager.getPaintState();
         paintState.painting = false;
       });
-    }
-
-    // Color picking
-    document.getElementById('canvasRef')?.addEventListener('click', e => MERS.PaintTool.pickColorFromEvent(e, 'ref'));
-    document.getElementById('canvasSrc')?.addEventListener('click', e => MERS.PaintTool.pickColorFromEvent(e, 'src'));
-    document.getElementById('canvasOut')?.addEventListener('click', e => MERS.PaintTool.pickColorFromEvent(e, 'out'));
+    }    
+// Eyedropper picking (on-demand)
+['ref','src','out'].forEach(type => {
+  const id = type === 'ref' ? 'canvasRef' : (type === 'src' ? 'canvasSrc' : 'canvasOut');
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('click', e => {
+    const ps = MERS.StateManager.getPaintState();
+    if (!ps.eyedropper) return;
+    MERS.PaintTool.pickColorFromEvent(e, type);
+    // auto-disable after a successful pick
+    ps.eyedropper = false;
+    const btn = document.getElementById('toggleEyedropper');
+    if (btn) btn.textContent = '🧪 Eyedropper: Off';
+  });
+});
 
     // Histogram controls
     $('#toggleHist').addEventListener('click', () => {
