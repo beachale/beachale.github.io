@@ -239,7 +239,7 @@
         <div class="row" style="margin-top:4px">
           <label class="switch" style="display:flex;align-items:center;gap:6px;font-size:12px;"><input id="brushCopyAlpha" type="checkbox" style="margin:0"><span>Copy transparency</span></label>
         </div>
-        <p class="muted" style="margin-top:8px">With the Eyedropper, click any preview to pick a colour (and optionally its transparency), then paint on the left preview. Use Select tool to select pixels of the same color value in single-channel mode, then Fill to apply color to selection. Pan/zoom is disabled while tools are active.</p>
+        <p class="muted" style="margin-top:8px">With the Eyedropper, click any preview to pick a colour (and optionally its transparency), then paint on the left preview. Use Select tool to select pixels of the same color value in single-channel mode, then Fill to apply color to selection. Hold Shift to add another colour/value to the current selection. Pan/zoom is disabled while tools are active.</p>
       </div>
 
       <div class="panel" id="layersPanel">
@@ -1212,8 +1212,8 @@ MERS.PaintTool = (function() {
     const targetIdx = (coord.y * w + coord.x) * 4;
     const targetValue = data[targetIdx + off];
     
-    // Clear previous selection
-    paintState.selection.fill(0);
+    // Clear previous selection unless Shift is held (additive multi-select)
+    if (!(e && e.shiftKey)) paintState.selection.fill(0);
     
     // Select all pixels with the same value in this channel
     for (let y = 0; y < h; y++) {
@@ -2997,9 +2997,11 @@ window.addEventListener('load', () => {
 
     const sel = ps.selection;
 
-    // Clear previous selection (REPLACE semantics)
-    if (sel.fill) sel.fill(0);
-    else for (let i = 0; i < sel.length; i++) sel[i] = 0;
+    // Clear previous selection unless Shift is held (additive multi-select)
+    if (!(e && e.shiftKey)) {
+      if (sel.fill) sel.fill(0);
+      else for (let i = 0; i < sel.length; i++) sel[i] = 0;
+    }
 
     // Limit to current frame bounds (mirror left-canvas behavior on spritesheets)
     const yStart = coord.frameY;
