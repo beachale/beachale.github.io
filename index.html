@@ -961,19 +961,26 @@ MERS.PaintTool = (function() {
   }
 
   function saveHistory() {
-    const state = MERS.StateManager.getState();
-    const paintState = MERS.StateManager.getPaintState();
-    if (!paintState.layer || !state.out) return;
-    const paintCopy = paintState.layer.data.slice();
-    const outCopy = state.out.data.slice();
-    paintState.undoStack.push({
-      paintData: paintCopy,
-      outData: outCopy,
-      maskData: (paintState.mask ? paintState.mask.slice() : null)
-    });
-    paintState.redoStack.length = 0;
-    updateUndoRedoButtons();
-  }
+  const state = MERS.StateManager.getState();
+  const ps = MERS.StateManager.getPaintState();
+  if (!state.out) return;
+
+  // Prefer dual-layer fields if present; fall back to legacy
+  const brushLayer = ps.layerBrush || ps.layer || null;
+  const bucketLayer = ps.layerBucket || null;
+  const maskBrush = ps.maskBrush || ps.mask || null;
+  const maskBucket = ps.maskBucket || null;
+
+  ps.undoStack.push({
+    outData: state.out.data.slice(),
+    brush: brushLayer ? brushLayer.data.slice() : null,
+    bucket: bucketLayer ? bucketLayer.data.slice() : null,
+    maskBrush: maskBrush ? maskBrush.slice() : null,
+    maskBucket: maskBucket ? maskBucket.slice() : null
+  });
+  ps.redoStack.length = 0;
+  updateUndoRedoButtons();
+}
 
   function updateUndoRedoButtons() {
     const paintState = MERS.StateManager.getPaintState();
@@ -2098,17 +2105,27 @@ MERS.UIManager = (function() {
     });
 
     canvasOut.addEventListener('wheel', e => {
-      const paintState = MERS.StateManager.getPaintState();
-      if (paintState && paintState.enabled) return;
-      e.preventDefault();
-      const state = MERS.StateManager.getState();
-      const s = Math.sign(e.deltaY);
-      state.zoom = Math.max(.25, Math.min(16, state.zoom * (s > 0 ? 0.9 : 1.1)));
-      document.getElementById('zoomVal').textContent = Math.round(state.zoom * 100) + '%';
-      MERS.PreviewManager.drawPreview();
-    }, { passive: false });
+  e.preventDefault();
+  const state = MERS.StateManager.getState();
+  const s = Math.sign(e.deltaY);
+  state.zoom = Math.max(.25, Math.min(16, state.zoom * (s > 0 ? 0.9 : 1.1)));
+  document.getElementById('zoomVal').textContent = Math.round(state.zoom * 100) + '%';
+  MERS.PreviewManager.drawPreview();
+}, { passive: false });
+// Ensure zoom works even when tools are enabled by also listening on the paint overlay
+const canvasPaint = document.getElementById('canvasPaint');
+if (canvasPaint) {
+  canvasPaint.addEventListener('wheel', e => {
+    e.preventDefault();
+    const state = MERS.StateManager.getState();
+    const s = Math.sign(e.deltaY);
+    state.zoom = Math.max(.25, Math.min(16, state.zoom * (s > 0 ? 0.9 : 1.1)));
+    document.getElementById('zoomVal').textContent = Math.round(state.zoom * 100) + '%';
+    MERS.PreviewManager.drawPreview();
+  }, { passive: false });
+}
 
-    canvasOut.addEventListener('mousedown', e => {
+canvasOut.addEventListener('mousedown', e => {
       const paintState = MERS.StateManager.getPaintState();
       if (paintState && paintState.enabled) return;
       isDragging = true;
@@ -2297,59 +2314,89 @@ if (eyedropperBtn) {
     }
 
     if (undoBtn) {
-      undoBtn.addEventListener('click', () => {
-        const state = MERS.StateManager.getState();
-        const paintState = MERS.StateManager.getPaintState();
-        if (paintState.undoStack.length === 0 || !paintState.layer || !state.out) return;
-        const currentPaint = paintState.layer.data.slice();
-        const currentOut = state.out.data.slice();
-        paintState.redoStack.push({
-          paintData: currentPaint,
-          outData: currentOut,
-          maskData: (paintState.mask ? paintState.mask.slice() : null)
-        });
-        const snap = paintState.undoStack.pop();
-        paintState.layer.data.set(snap.paintData);
-        state.out.data.set(snap.outData);
-        if (snap.maskData && paintState.mask) {
-          paintState.mask.set(snap.maskData);
-        }
-        MERS.PaintTool.updateUndoRedoButtons();
-        MERS.PreviewManager.drawPreview();
-        MERS.HistogramManager.drawHistogram();
-      });
+  undoBtn.addEventListener('click', () => {
+    const state = MERS.StateManager.getState();
+    const ps = MERS.StateManager.getPaintState();
+    if (ps.undoStack.length === 0 || !state.out) return;
+
+    // Save current to redo
+    const current = {
+      outData: state.out.data.slice(),
+      brush:    (ps.layerBrush  ? ps.layerBrush.data.slice()  : (ps.layer ? ps.layer.data.slice() : null)),
+      bucket:   (ps.layerBucket ? ps.layerBucket.data.slice() : null),
+      maskBrush:(ps.maskBrush   ? ps.maskBrush.slice()        : (ps.mask ? ps.mask.slice() : null)),
+      maskBucket:(ps.maskBucket ? ps.maskBucket.slice()       : null)
+    };
+    ps.redoStack.push(current);
+
+    // Restore from undo
+    const snap = ps.undoStack.pop();
+    if (snap.brush) {
+      if (ps.layerBrush) ps.layerBrush.data.set(snap.brush);
+      else if (ps.layer) ps.layer.data.set(snap.brush);
     }
+    if (snap.bucket && ps.layerBucket) ps.layerBucket.data.set(snap.bucket);
+    if (snap.maskBrush) {
+      if (ps.maskBrush) ps.maskBrush.set(snap.maskBrush);
+      else if (ps.mask) ps.mask.set(snap.maskBrush);
+    }
+    if (snap.maskBucket && ps.maskBucket) ps.maskBucket.set(snap.maskBucket);
+    if (snap.outData) state.out.data.set(snap.outData);
+
+    // Recompose + refresh UI
+    if (MERS.PaintTool.applyPaintOnOut) MERS.PaintTool.applyPaintOnOut();
+    MERS.PaintTool.updateUndoRedoButtons();
+    MERS.PreviewManager.drawPreview();
+    MERS.HistogramManager.drawHistogram();
+  });
+}
 
     if (redoBtn) {
-      redoBtn.addEventListener('click', () => {
-        const state = MERS.StateManager.getState();
-        const paintState = MERS.StateManager.getPaintState();
-        if (paintState.redoStack.length === 0 || !paintState.layer || !state.out) return;
-        const currentPaint = paintState.layer.data.slice();
-        const currentOut = state.out.data.slice();
-        paintState.undoStack.push({
-          paintData: currentPaint,
-          outData: currentOut,
-          maskData: (paintState.mask ? paintState.mask.slice() : null)
-        });
-        const snap = paintState.redoStack.pop();
-        paintState.layer.data.set(snap.paintData);
-        state.out.data.set(snap.outData);
-        if (snap.maskData && paintState.mask) {
-          paintState.mask.set(snap.maskData);
-        }
-        MERS.PaintTool.updateUndoRedoButtons();
-        MERS.PreviewManager.drawPreview();
-        MERS.HistogramManager.drawHistogram();
-      });
+  redoBtn.addEventListener('click', () => {
+    const state = MERS.StateManager.getState();
+    const ps = MERS.StateManager.getPaintState();
+    if (ps.redoStack.length === 0 || !state.out) return;
+
+    // Save current to undo
+    const current = {
+      outData: state.out.data.slice(),
+      brush:    (ps.layerBrush  ? ps.layerBrush.data.slice()  : (ps.layer ? ps.layer.data.slice() : null)),
+      bucket:   (ps.layerBucket ? ps.layerBucket.data.slice() : null),
+      maskBrush:(ps.maskBrush   ? ps.maskBrush.slice()        : (ps.mask ? ps.mask.slice() : null)),
+      maskBucket:(ps.maskBucket ? ps.maskBucket.slice()       : null)
+    };
+    ps.undoStack.push(current);
+
+    // Restore from redo
+    const snap = ps.redoStack.pop();
+    if (snap.brush) {
+      if (ps.layerBrush) ps.layerBrush.data.set(snap.brush);
+      else if (ps.layer) ps.layer.data.set(snap.brush);
     }
+    if (snap.bucket && ps.layerBucket) ps.layerBucket.data.set(snap.bucket);
+    if (snap.maskBrush) {
+      if (ps.maskBrush) ps.maskBrush.set(snap.maskBrush);
+      else if (ps.mask) ps.mask.set(snap.maskBrush);
+    }
+    if (snap.maskBucket && ps.maskBucket) ps.maskBucket.set(snap.maskBucket);
+    if (snap.outData) state.out.data.set(snap.outData);
+
+    // Recompose + refresh UI
+    if (MERS.PaintTool.applyPaintOnOut) MERS.PaintTool.applyPaintOnOut();
+    MERS.PaintTool.updateUndoRedoButtons();
+    MERS.PreviewManager.drawPreview();
+    MERS.HistogramManager.drawHistogram();
+  });
+}
 
     // Paint canvas events
     if (paintCanvas) {
       paintCanvas.addEventListener('mousedown', e => {
         const paintState = MERS.StateManager.getPaintState();
         
-        if (paintState.select) {
+        
+        if (e.button !== 0) { e.preventDefault(); return; }
+if (paintState.select) {
           MERS.PaintTool.selectByColor(e);
           e.stopPropagation();
           e.preventDefault();
@@ -3569,6 +3616,74 @@ try {
     MERS.ImageProcessor.parseTGA = parseTGA;
   }
 } catch (e) {}
+</script>
+
+<!-- === Patch: Right-click pan on preview (works even with tools enabled) === -->
+<script>
+(function(){
+  function setupRightClickPan(){
+    const out = document.getElementById('canvasOut');
+    const paint = document.getElementById('canvasPaint');
+    const targetEls = [out, paint].filter(Boolean);
+    if (targetEls.length === 0) return;
+
+    // Prevent default context menu so right-drag feels native
+    targetEls.forEach(el => el.addEventListener('contextmenu', e => { e.preventDefault(); }, {passive:false}));
+
+    targetEls.forEach(el => {
+      el.addEventListener('mousedown', function(e){
+        if (e.button !== 2) return; // right button only
+        const st = MERS.StateManager.getState();
+        let lastX = e.clientX, lastY = e.clientY;
+        let active = true;
+
+        // Change cursor feedback
+        const prevCursor = el.style.cursor;
+        el.style.cursor = 'grabbing';
+
+        // While panning, suppress paint/select/bucket handlers
+        e.preventDefault();
+        e.stopPropagation();
+
+        function move(ev){
+          if (!active) return;
+          const dx = ev.clientX - lastX;
+          const dy = ev.clientY - lastY;
+          lastX = ev.clientX;
+          lastY = ev.clientY;
+          st.panX += dx;
+          st.panY += dy;
+
+          // Redraw using current pan/zoom
+          if (MERS.PreviewManager && MERS.PreviewManager.drawPreview) {
+            MERS.PreviewManager.drawPreview();
+          }
+          if (MERS.HistogramManager && MERS.HistogramManager.drawHistogram) {
+            MERS.HistogramManager.drawHistogram();
+          }
+        }
+
+        function up(ev){
+          active = false;
+          el.style.cursor = prevCursor || '';
+          window.removeEventListener('mousemove', move, true);
+          window.removeEventListener('mouseup', up, true);
+          // Avoid triggering a stray click after panning
+          if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+        }
+
+        window.addEventListener('mousemove', move, true);
+        window.addEventListener('mouseup', up, true);
+      }, true); // capture so we win over tool handlers
+    });
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setupRightClickPan();
+  } else {
+    document.addEventListener('DOMContentLoaded', setupRightClickPan);
+  }
+})();
 </script>
 </body>
 </html>
