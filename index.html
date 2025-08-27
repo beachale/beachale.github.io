@@ -2554,7 +2554,7 @@ MERS.Core = (function() {
         if (byPixel) {
           const ref = state.refRes && state.refRes.data;
           const Ridx = i;
-          if (ref && sa > 0) {
+          if (ref) {
             texR = ref[Ridx] / 255;
             texG = ref[Ridx + 1] / 255;
             texB = ref[Ridx + 2] / 255;
@@ -2566,7 +2566,7 @@ MERS.Core = (function() {
         } else if (cmap) {
           const key = sr + ',' + sg + ',' + sb + ',' + sa;
           const mapped = cmap.get(key);
-          if (mapped && sa > 0) {
+          if (mapped) {
             texR = mapped[0] / 255;
             texG = mapped[1] / 255;
             texB = mapped[2] / 255;
