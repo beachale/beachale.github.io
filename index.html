@@ -3685,9 +3685,441 @@ try {
   }
 })();
 </script>
-</body>
-</html>
 
+
+
+<!-- === Consolidated patches appended by cleanup === -->
+
+<!-- UPSCALED_V1V2_PATCH_START -->
+<script>
+(function() {
+  function ready(fn) { if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+  ready(function() {
+    if (!window.MERS || !MERS.StateManager || !MERS.Core || !MERS.ImageProcessor) return;
+
+    
+    // Coerce legacy selection
+    try { if (MERS.StateManager.getState().refMatch === 'upscaled_v1') MERS.StateManager.getState().refMatch = 'upscaled_v2'; } catch(_) {}
+// ---- Ensure only V2 exists; remove V1 if present ----
+    document.querySelectorAll('select.refMatchSel').forEach(sel => {
+      // remove any V1 option
+      [...sel.options].forEach((o, i) => { if (o.value === 'upscaled_v1') sel.remove(i); });
+      // ensure V2 exists
+      const hasV2 = [...sel.options].some(o => o.value === 'upscaled_v2');
+      if (!hasV2) sel.add(new Option('Upscaled V2 (tolerant)', 'upscaled_v2'));
+    });
+
+    // (Removed) Upscaled tolerance UI was removed at user request.
+function showTolFor(mode){ /* no UI */ }
+const st = MERS.StateManager.getState();
+if (typeof st.upTol !== 'number') st.upTol = 0;
+
+// ---- Downscale helper (2×2 modal) ----
+    function downscaleMode2x(imgd) {
+      const W = imgd.width, H = imgd.height;
+      const w = Math.max(1, Math.floor(W/2)), h = Math.max(1, Math.floor(H/2));
+      const out = new ImageData(w,h);
+      const S = imgd.data, R = out.data;
+      for (let y=0;y<h;y++) {
+        for (let x=0;x<w;x++) {
+          const counts = new Map();
+          for (let dy=0; dy<2; dy++) {
+            for (let dx=0; dx<2; dx++) {
+              const sx = Math.min(W-1, x*2+dx), sy = Math.min(H-1, y*2+dy);
+              const i = (sy*W+sx)*4;
+              const key = S[i]+','+S[i+1]+','+S[i+2]+','+S[i+3];
+              counts.set(key, (counts.get(key)||0)+1);
+            }
+          }
+          let bestKey = null, bestCount = -1;
+          for (const [k,c] of counts.entries()) { if (c>bestCount) { bestCount=c; bestKey=k; } }
+          const [r,g,b,a] = bestKey.split(',').map(Number);
+          const o = (y*w+x)*4; R[o]=r; R[o+1]=g; R[o+2]=b; R[o+3]=a;
+        }
+      }
+      return out;
+    }
+
+    // ---- Strict 1:1 mapping like the Python script ----
+    function buildStrictMap(src16, ref16) {
+      const S = src16.data, R = ref16.data;
+      if (src16.width !== ref16.width || src16.height !== ref16.height) return { error: 'Mismatched 16× dimensions' };
+      const seen = new Map(); // src rgba key -> Set of target keys
+      const toKey = (arr,i)=> arr[i]+','+arr[i+1]+','+arr[i+2]+','+arr[i+3];
+      for (let i=0;i<S.length;i+=4) {
+        const sk = toKey(S,i), rk = toKey(R,i);
+        if (!seen.has(sk)) seen.set(sk, new Set([rk]));
+        else seen.get(sk).add(rk);
+      }
+      const mapping = new Map();
+      for (const [sk, set] of seen.entries()) {
+        if (set.size > 1) return { error: 'Inconsistent color mapping between 16× PNG and 16× TGA' };
+        mapping.set(sk, [...set][0]);
+      }
+      return { mapping };
+    }
+
+    function hasOnlyKnownColors(pixels32, palette16Keys, tol) {
+      // pixels32: ImageData of 32× src
+      const d = pixels32.data;
+      for (let i=0;i<d.length;i+=4) {
+        const sk = d[i]+','+d[i+1]+','+d[i+2]+','+d[i+3];
+        // exact or tolerant presence in 16× palette
+        if (palette16Keys.has(sk)) continue;
+        if (tol > 0) {
+          let ok = false;
+          for (const k of palette16Keys) {
+            const [R,G,B,A] = k.split(',').map(Number);
+            if (Math.abs(R-d[i])<=tol && Math.abs(G-d[i+1])<=tol && Math.abs(B-d[i+2])<=tol && Math.abs(A-d[i+3])<=tol) { ok = True; break; }
+          }
+          if (ok) continue;
+        }
+        return false;
+      }
+      return true;
+    }
+
+    // Wrap rebuildRefColorMap to support both V1 and V2
+    const _origRebuild = MERS.Core.rebuildRefColorMap;
+    MERS.Core.rebuildRefColorMap = function() {
+      const state = MERS.StateManager.getState();
+      state.refMapByColor = null;
+      if (!state.src || !state.ref) return;
+
+      const w = state.src.width, h = state.src.height;
+      state.refRes = MERS.ImageProcessor.resampleImageData(state.ref, w, h); // needed for pixel mode
+
+      if (state.refMatch === 'upscaled_v2') {
+        const baseW = Math.max(1, Math.floor(w/2)), baseH = Math.max(1, Math.floor(h/2));
+        const src16 = downscaleMode2x(state.src); // proxy for 16× PNG
+        const ref16 = MERS.ImageProcessor.resampleImageData(state.ref, baseW, baseH);
+
+        
+
+        if (state.refMatch === 'upscaled_v2') {
+          // TOLERANT variant (previous implementation)
+          const S = src16.data, R = ref16.data;
+          const votes = new Map();  // srcKey -> Map(tgtKey->count)
+          const toKey = (arr,i)=> arr[i]+','+arr[i+1]+','+arr[i+2]+','+arr[i+3];
+          for (let i=0;i<baseW*baseH*4;i+=4) {
+            const sk = toKey(S,i), rk = toKey(R,i);
+            if (!votes.has(sk)) votes.set(sk, new Map());
+            const inner = votes.get(sk);
+            inner.set(rk, (inner.get(rk)||0)+1);
+          }
+          const baseMap = new Map();
+          const srcKeys = [];
+          for (const [sk, inner] of votes.entries()) {
+            let best = null, bestN = -1;
+            for (const [rk, n] of inner.entries()) { if (n>bestN) { bestN=n; best=rk; } }
+            baseMap.set(sk, best.split(',').map(Number));
+            srcKeys.push(sk);
+          }
+          const upscaledMap = {
+            _m: baseMap,
+            _keys: srcKeys,
+            get: function(key) {
+              const hit = this._m.get(key);
+              if (hit) return hit;
+              const tol = (MERS.StateManager.getState().upTol|0) || 0;
+              if (tol <= 0) return undefined;
+              const [r,g,b,a] = key.split(',').map(Number);
+              let res = undefined;
+              for (let i=0;i<this._keys.length;i++) {
+                const k = this._keys[i];
+                const [R,G,B,A] = k.split(',').map(Number);
+                if (Math.abs(R-r) <= tol && Math.abs(G-g) <= tol && Math.abs(B-b) <= tol && Math.abs(A-a) <= tol) {
+                  res = this._m.get(k);
+                  this._m.set(key, res);
+                  break;
+                }
+              }
+              return res;
+            }
+          };
+          state.refMapByColor = { map: upscaledMap, w: baseW, h: baseH, upscaled_v2: true };
+          return;
+        }
+      }
+
+      // Other modes: original
+      return _origRebuild.call(MERS.Core);
+    };
+
+    function onSelectChange(el) {
+      const s = MERS.StateManager.getState();
+      s.refMatch = el.value;
+      document.querySelectorAll('.refMatchSel').forEach(sel => sel.value = s.refMatch);
+      showTolFor(s.refMatch);
+      MERS.Core.rebuildRefColorMap();
+      MERS.Core.recompute();
+    }
+    function wireSelect(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', () => onSelectChange(el), { capture: true });
+    }
+    wireSelect('refMatchLeft');
+    wireSelect('refMatchTop');
+
+    // Initial state/visibility
+    const currentSel = document.getElementById('refMatchLeft') || document.getElementById('refMatchTop');
+    const mode = currentSel ? currentSel.value : (MERS.StateManager.getState().refMatch || 'color');
+    showTolFor(mode);
+    MERS.Core.rebuildRefColorMap();
+    MERS.Core.recompute();
+  });
+})();
+</script>
+<!-- UPSCALED_V1V2_PATCH_END -->
+
+<script>
+function parseTGA(view) {
+  // --- Header ---
+  const idLen = view.getUint8(0);
+  const cmType = view.getUint8(1);        // 0 = none, 1 = has color map
+  const imageType = view.getUint8(2);     // 1/9 = color-mapped, 2/10 = truecolor, 3/11 = grayscale
+  const cmFirst = view.getUint16(3, true);
+  const cmLen   = view.getUint16(5, true);
+  const cmBpp   = view.getUint8(7);       // bits per palette entry
+  const width   = view.getUint16(12, true);
+  const height  = view.getUint16(14, true);
+  const bpp     = view.getUint8(16);      // bits per pixel of image data
+  const desc    = view.getUint8(17);
+  const originTop  = (desc & 0x20) !== 0; // Bit 5: 0 = bottom, 1 = top
+  const originLeft = (desc & 0x10) === 0; // Bit 4: 0 = left-to-right, 1 = right-to-left (so true when bit=0)
+  const alphaBits  = (desc & 0x0F);       // number of attribute/alpha bits per pixel (0..8 or 0..1 for 16bpp)
+  const interleave = (desc & 0x03);       // 0 none, 1 two-way, 2 four-way
+
+  let p = 18 + idLen; // skip ID field
+
+  // --- Palette (if present) ---
+  let palette = null;
+  if (cmType === 1 && cmLen > 0) {
+    palette = new Array(cmFirst + cmLen);
+    for (let i = 0; i < cmLen; i++) {
+      if (cmBpp === 24 || cmBpp === 32) {
+        const B = view.getUint8(p++), G = view.getUint8(p++), R = view.getUint8(p++);
+        const A = (cmBpp === 32) ? view.getUint8(p++) : 255;
+        palette[cmFirst + i] = [R, G, B, A];
+      } else if (cmBpp === 15 || cmBpp === 16) {
+        const v = view.getUint16(p, true); p += 2;
+        // 5-5-5 (BGR). Attribute bit ignored (opaque).
+        const B = ((v       & 0x1F) * 255 + 15) / 31 | 0;
+        const G = (((v>>5)  & 0x1F) * 255 + 15) / 31 | 0;
+        const R = (((v>>10) & 0x1F) * 255 + 15) / 31 | 0;
+        palette[cmFirst + i] = [R, G, B, 255];
+      } else {
+        throw new Error('Unsupported TGA palette entry size');
+      }
+    }
+  }
+
+  // Helpers
+  const out = new Uint8ClampedArray(width * height * 4);
+
+  function mapRow(ySeq) {
+    // Handle interleaving (2-way and 4-way)
+    let row = ySeq;
+    if (interleave === 1) { // two-way
+      const half = Math.ceil(height / 2);
+      row = (ySeq < half) ? ySeq * 2 : (ySeq - half) * 2 + 1;
+    } else if (interleave === 2) { // four-way
+      const q = Math.ceil(height / 4);
+      if (ySeq < q) row = ySeq * 4;
+      else if (ySeq < 2*q) row = (ySeq - q) * 4 + 1;
+      else if (ySeq < 3*q) row = (ySeq - 2*q) * 4 + 2;
+      else row = (ySeq - 3*q) * 4 + 3;
+    }
+    // Vertical origin
+    row = originTop ? row : (height - 1 - row);
+    return row;
+  }
+
+  function writePixel(ySeq, xSeq, r, g, b, a) {
+    const row = mapRow(ySeq);
+    const col = originLeft ? xSeq : (width - 1 - xSeq);
+    if (row < 0 || row >= height || col < 0 || col >= width) return;
+    const i = (row * width + col) * 4;
+    out[i] = r; out[i+1] = g; out[i+2] = b; out[i+3] = a;
+  }
+
+  function expand5(v) { return ((v * 255 + 15) / 31) | 0; }
+
+  function readTruecolorPixel() {
+    if (bpp === 24) {
+      const B = view.getUint8(p++), G = view.getUint8(p++), R = view.getUint8(p++);
+      return [R, G, B, 255];
+    } else if (bpp === 32) {
+      const B = view.getUint8(p++), G = view.getUint8(p++), R = view.getUint8(p++), A = view.getUint8(p++);
+      return [R, G, B, A];
+    } else if (bpp === 16 || bpp === 15) {
+      const v = view.getUint16(p, true); p += 2;
+      const B = expand5( v        & 0x1F);
+      const G = expand5((v >> 5)  & 0x1F);
+      const R = expand5((v >> 10) & 0x1F);
+      let A = 255;
+      if (alphaBits > 0) {
+        // Use top bit as 1-bit alpha when present
+        A = (v & 0x8000) ? 255 : 0;
+      }
+      return [R, G, B, A];
+    }
+    throw new Error('Unsupported truecolor bpp');
+  }
+
+  function readIndexedPixel() {
+    if (bpp === 8) {
+      const idx = view.getUint8(p++);
+      const px = (palette && palette[idx]) || (palette && palette[cmFirst]) || [0,0,0,255];
+      return px;
+    } else if (bpp === 16) {
+      const idx = view.getUint16(p, true); p += 2;
+      const safe = Math.min(idx, (palette ? palette.length - 1 : 0));
+      const px = (palette && palette[safe]) || (palette && palette[cmFirst]) || [0,0,0,255];
+      return px;
+    }
+    throw new Error('Unsupported indexed bpp');
+  }
+
+  function readGrayPixel() {
+    if (bpp === 8) {
+      const v = view.getUint8(p++);
+      return [v, v, v, 255];
+    } else if (bpp === 16) {
+      // 8-bit intensity + 8-bit alpha (little-endian)
+      const intensity = view.getUint8(p++);
+      const a = view.getUint8(p++);
+      return [intensity, intensity, intensity, a];
+    }
+    throw new Error('Unsupported grayscale bpp');
+  }
+
+  function fillUncompressed(readOne) {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const [r,g,b,a] = readOne();
+        writePixel(y, x, r,g,b,a);
+      }
+    }
+  }
+
+  function fillRLE(readOne) {
+    let x = 0, y = 0;
+    const total = width * height;
+    let written = 0;
+    while (written < total) {
+      const header = view.getUint8(p++);
+      const count = (header & 0x7F) + 1;
+      if (header & 0x80) {
+        // run-length packet
+        const px = readOne();
+        for (let i = 0; i < count; i++) {
+          writePixel(y, x, px[0], px[1], px[2], px[3]);
+          if (++x >= width) { x = 0; y++; }
+          written++;
+        }
+      } else {
+        // raw packet
+        for (let i = 0; i < count; i++) {
+          const px = readOne();
+          writePixel(y, x, px[0], px[1], px[2], px[3]);
+          if (++x >= width) { x = 0; y++; }
+          written++;
+        }
+      }
+    }
+  }
+
+  // --- Decode by image type ---
+  switch (imageType) {
+    case 2:  fillUncompressed(readTruecolorPixel); break;       // truecolor
+    case 10: fillRLE(readTruecolorPixel); break;                // truecolor RLE
+    case 1:  fillUncompressed(readIndexedPixel); break;         // indexed
+    case 9:  fillRLE(readIndexedPixel); break;                  // indexed RLE
+    case 3:  fillUncompressed(readGrayPixel); break;            // grayscale
+    case 11: fillRLE(readGrayPixel); break;                     // grayscale RLE
+    default: throw new Error('Unsupported TGA image type');
+  }
+
+  return new ImageData(out, width, height);
+}
+
+// Hook into app namespace if present
+try {
+  if (typeof MERS !== "undefined" && MERS.ImageProcessor) {
+    MERS.ImageProcessor.parseTGA = parseTGA;
+  }
+} catch (e) {}
+</script>
+
+<!-- === Patch: Right-click pan on preview (works even with tools enabled) === -->
+<script>
+(function(){
+  function setupRightClickPan(){
+    const out = document.getElementById('canvasOut');
+    const paint = document.getElementById('canvasPaint');
+    const targetEls = [out, paint].filter(Boolean);
+    if (targetEls.length === 0) return;
+
+    // Prevent default context menu so right-drag feels native
+    targetEls.forEach(el => el.addEventListener('contextmenu', e => { e.preventDefault(); }, {passive:false}));
+
+    targetEls.forEach(el => {
+      el.addEventListener('mousedown', function(e){
+        if (e.button !== 2) return; // right button only
+        const st = MERS.StateManager.getState();
+        let lastX = e.clientX, lastY = e.clientY;
+        let active = true;
+
+        // Change cursor feedback
+        const prevCursor = el.style.cursor;
+        el.style.cursor = 'grabbing';
+
+        // While panning, suppress paint/select/bucket handlers
+        e.preventDefault();
+        e.stopPropagation();
+
+        function move(ev){
+          if (!active) return;
+          const dx = ev.clientX - lastX;
+          const dy = ev.clientY - lastY;
+          lastX = ev.clientX;
+          lastY = ev.clientY;
+          st.panX += dx;
+          st.panY += dy;
+
+          // Redraw using current pan/zoom
+          if (MERS.PreviewManager && MERS.PreviewManager.drawPreview) {
+            MERS.PreviewManager.drawPreview();
+          }
+          if (MERS.HistogramManager && MERS.HistogramManager.drawHistogram) {
+            MERS.HistogramManager.drawHistogram();
+          }
+        }
+
+        function up(ev){
+          active = false;
+          el.style.cursor = prevCursor || '';
+          window.removeEventListener('mousemove', move, true);
+          window.removeEventListener('mouseup', up, true);
+          // Avoid triggering a stray click after panning
+          if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+        }
+
+        window.addEventListener('mousemove', move, true);
+        window.addEventListener('mouseup', up, true);
+      }, true); // capture so we win over tool handlers
+    });
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setupRightClickPan();
+  } else {
+    document.addEventListener('DOMContentLoaded', setupRightClickPan);
+  }
+})();
+</script>
 
 <!-- === Patch: Sync Original texture canvas (src) with pan/zoom & picking === -->
 <script>
@@ -3819,3 +4251,6 @@ try {
   });
 })();
 </script>
+
+</body>
+</html>
