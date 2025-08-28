@@ -3933,6 +3933,7 @@ try {
     flex-wrap: wrap;
   }
   .gh-sub { margin-top: 8px; }
+  .gh-note { flex-basis: 100%; margin-top: 6px; font-size: 12px; color: #ef4444; }
 
   /* Pill button */
   #autoGithubRefWrap.toggle {
@@ -4238,6 +4239,7 @@ try {
           <input id="autoGithubRef" type="checkbox" hidden>
           <span class="label">Auto apply MERS via Bedrock Github</span>
         </label>
+        <div class="gh-note">Auto apply can make mistakes. Use the search to ensure exact match</div>
         <span class="gh-search-wrap">
           <input id="ghSearch" type="search" placeholder="Search MERS .tga… (type to see dropdown)">
           <div id="ghSuggest" class="gh-suggest"></div>
@@ -4321,9 +4323,3 @@ try {
   });
 })();
 </script>
-
-
-
-
-
-
