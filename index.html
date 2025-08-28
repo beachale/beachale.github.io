@@ -3743,6 +3743,44 @@ try {
   }
 })();
 </script>
+
+<!-- === Disclaimer (requested) === -->
+<style>
+  .mc-disclaimer {
+    margin-top: 24px;
+    padding: 12px 16px;
+    border-top: 1px solid rgba(0,0,0,0.12);
+    color: #9CA3AF;
+    font-size: 12px;
+    text-align: center;
+    letter-spacing: .3px;
+  }
+</style>
+
+<!-- === Project Link === -->
+<style>
+  .mc-link {
+    margin-top: 12px;
+    text-align: center;
+    font-size: 12px;
+  }
+  .mc-link a { text-decoration: none; }
+  .mc-link a:hover { text-decoration: underline; }
+</style>
+<style>
+  /* Softer light blue for the project link */
+  .mc-link a { color: #93C5FD; }
+  .mc-link a:visited { color: #93C5FD; }
+  .mc-link a:hover { color: #60A5FA; }
+</style>
+
+<div class="mc-link">
+  <a href="https://github.com/beachale/beachale.github.io" target="_blank" rel="noopener">https://github.com/beachale/beachale.github.io</a>
+</div>
+<div class="mc-disclaimer" role="note" aria-label="Minecraft Disclaimer">
+  NOT AN OFFICIAL MINECRAFT TOOL. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT
+</div>
+
 </body>
 </html>
 
@@ -3877,3 +3915,415 @@ try {
   });
 })();
 </script>
+
+
+
+
+
+
+
+
+<!-- === GitHub Auto-Reference for MERS (Bedrock samples) === -->
+<style>
+  /* Layout */
+  .gh-top {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .gh-sub { margin-top: 8px; }
+
+  /* Pill button */
+  #autoGithubRefWrap.toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border: 1px solid rgba(0,0,0,.20);
+    border-radius: 9999px;
+    cursor: pointer;
+    user-select: none;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0,0,0,.12);
+    margin-right: 8px;
+  }
+  #autoGithubRefWrap.toggle:hover {
+    border-color: rgba(0,0,0,.35);
+    box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  }
+  #autoGithubRefWrap .label {
+    font-weight: 600;
+    letter-spacing: .2px;
+    color: #1f2937;
+  }
+  #autoGithubRefWrap:focus-visible { outline: 2px solid #4c9ffe; outline-offset: 2px; }
+
+  /* Search box + dropdown */
+  .gh-search-wrap { position: relative; display: inline-block; }
+  #ghSearch {
+    display: inline-block;
+    width: 360px;
+    padding: 8px 10px;
+    border: 1px solid rgba(0,0,0,.25);
+    border-radius: 10px;
+    background: #fff;
+    color: #111827;
+    box-shadow: 0 1px 2px rgba(0,0,0,.06) inset;
+  }
+  #ghSearch::placeholder { color: #6b7280; }
+  .gh-suggest {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
+    background: #fff;
+    border: 1px solid rgba(0,0,0,.2);
+    border-radius: 10px;
+    box-shadow: 0 8px 18px rgba(0,0,0,.18);
+    max-height: 280px;
+    overflow: auto;
+    z-index: 9999;
+    display: none;
+  }
+  .gh-suggest ul { list-style: none; margin: 0; padding: 6px 0; }
+  .gh-suggest li {
+    padding: 8px 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .gh-suggest li .base { font-weight: 600; color: #111827; }
+  .gh-suggest li .dir { font-size: 12px; color: #6b7280; }
+  .gh-suggest li:hover, .gh-suggest li.active { background: #f3f4f6; }
+</style>
+<script>
+/* === GitHub Auto-Reference for MERS (Bedrock samples) — v7 (custom live dropdown) === */
+(function () {
+  const OWNER = 'Mojang';
+  const REPO  = 'bedrock-samples';
+  const REF   = 'preview';
+  const ROOT  = 'resource_pack/textures/';
+  const API_TREE = `https://api.github.com/repos/${OWNER}/${REPO}/git/trees/${REF}?recursive=1`;
+  const RAW_BASE = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${REF}/`;
+
+  const UI = {
+    row: null, chk: null, btnApply: null, status: null, folderHint: null, toggleWrap: null,
+    searchWrap: null, input: null, suggest: null
+  };
+  const Index = { ready:false, items:[], byPath:new Map(), byBase:new Map() };
+  let LastTextureFile = null;
+  let activeIndex = -1;
+
+  function basename(p){ return p.split('/').pop(); }
+  function dirname(p){ const i = p.lastIndexOf('/'); return i>=0 ? p.slice(0,i) : ''; }
+  function tokens(name){
+    return name.toLowerCase()
+      .replace(/\.[a-z0-9]+$/,'')
+      .replace(/_mers$/,'')
+      .split(/[^a-z0-9]+/g).filter(Boolean)
+      .filter(t => t !== 'mers');
+  }
+  function stem(name){
+    return name.toLowerCase()
+      .replace(/\.[a-z0-9]+$/,'')
+      .replace(/_mers$/,'');
+  }
+
+  const FOLDER_PRIORITY = {
+    'entity': 600, 'entities': 600,
+    'items': 200, 'item': 200,
+    'blocks': 100, 'block': 100,
+    'ui': 50, 'environment': 50, 'misc': 25,
+  };
+  function folderScore(dir){
+    const parts = dir.toLowerCase().split('/');
+    let s = 0;
+    for (const p of parts){ if (FOLDER_PRIORITY[p]) s += FOLDER_PRIORITY[p]; }
+    return s;
+  }
+  function matchesFolderHint(dir, hint){
+    if (!hint || hint === 'auto') return true;
+    dir = dir.toLowerCase();
+    if (hint === 'blocks') return dir.includes('/block/') || dir.includes('/blocks/');
+    return dir.includes('/' + hint + '/');
+  }
+  function setStatus(msg){ if (UI.status) UI.status.textContent = msg || ''; }
+
+  async function ensureIndex(){
+    if (Index.ready) return;
+    setStatus('Indexing Mojang textures from GitHub…');
+    const res = await fetch(API_TREE);
+    if (!res.ok) throw new Error('GitHub API failed: ' + res.status);
+    const json = await res.json();
+    const list = (json.tree || [])
+      .filter(n => n.type === 'blob' && n.path.startsWith(ROOT) && n.path.toLowerCase().endsWith('.tga'))
+      .map(n => ({
+          path: n.path,
+          base: basename(n.path),
+          stem: stem(basename(n.path)),
+          dir: dirname(n.path),
+      }));
+    list.forEach(it => it.toks = tokens(it.base));
+    Index.items = list;
+    Index.byPath = new Map(list.map(it => [it.path, it]));
+    Index.byBase = new Map();
+    for (const it of list){
+      const arr = Index.byBase.get(it.base) || [];
+      arr.push(it);
+      Index.byBase.set(it.base, arr);
+    }
+    Index.ready = true;
+    setStatus(`Indexed ${list.length} .tga files.`);
+  }
+
+  async function fetchAndApply(path){
+    setStatus('Fetching ' + basename(path) + ' …');
+    const res = await fetch(RAW_BASE + path);
+    if (!res.ok) throw new Error('Fetch failed: ' + res.status);
+    const buf = await res.arrayBuffer();
+
+    if (!window.MERS || !MERS.ImageProcessor || !MERS.ImageProcessor.parseTGA) {
+      setStatus('MERS runtime not detected.');
+      return;
+    }
+    const ref = MERS.ImageProcessor.parseTGA(new DataView(buf));
+    const state = MERS.StateManager && MERS.StateManager.getState ? MERS.StateManager.getState() : (window.MERS_STATE ||= {});
+    state.ref = ref;
+    const nameSpan = document.getElementById('refName');
+    if (nameSpan) nameSpan.textContent = 'GitHub: ' + basename(path);
+
+    try { MERS.PreviewManager && MERS.PreviewManager.drawReference && MERS.PreviewManager.drawReference(); } catch(e){}
+    try { MERS.UIManager && MERS.UIManager.updateRefControls && MERS.UIManager.updateRefControls(); } catch(e){}
+    try { MERS.Core && MERS.Core.rebuildRefColorMap && MERS.Core.rebuildRefColorMap(); } catch(e){}
+    try { MERS.Core && MERS.Core.recompute && MERS.Core.recompute(); } catch(e){}
+    setStatus('Applied ' + basename(path));
+    hideSuggest();
+  }
+
+  function bestAutoMatchFor(srcName, folderHint){
+    const srcStem = stem(srcName);
+    const srcToks = tokens(srcName);
+    const srcSet  = new Set(srcToks);
+
+    let best = null;
+    let bestScore = -1;
+
+    for (const it of Index.items){
+      if (!matchesFolderHint(it.dir, folderHint)) continue;
+
+      const itStem = it.stem;
+      const itToks = it.toks;
+
+      const intersect = itToks.filter(t => srcSet.has(t)).length;
+      const extraTokPenalty = Math.max(0, itToks.length - intersect);
+
+      const exactStem = (itStem === srcStem) ? 1 : 0;
+      const prefixStem = (!exactStem && itStem.startsWith(srcStem + '_')) ? 1 : 0;
+
+      let score = 0;
+      score += exactStem ? 100000 : 0;
+      score += prefixStem ? 30000 : 0;
+      score += intersect * 300;
+      score -= extraTokPenalty * 120;
+      score += folderScore(it.dir);
+      score -= itStem.length;
+
+      if (score > bestScore){
+        bestScore = score;
+        best = it;
+      }
+    }
+    if (!best && folderHint && folderHint !== 'auto'){
+      return bestAutoMatchFor(srcName, 'auto');
+    }
+    return best && best.path;
+  }
+
+  async function tryAutoForCurrentTexture(){
+    const texNameEl = document.getElementById('texName');
+    const srcName = texNameEl ? texNameEl.textContent : '';
+    if (!srcName || !UI.chk || !UI.chk.checked) return;
+
+    try {
+      await ensureIndex();
+      const hint = UI.folderHint ? UI.folderHint.value : 'auto';
+      const path = bestAutoMatchFor(srcName, hint);
+      if (path){
+        await fetchAndApply(path);
+      } else {
+        setStatus('No direct match. Start typing to search.');
+        UI.input && UI.input.focus();
+      }
+    } catch (e){
+      console.error(e);
+      setStatus('Error: ' + e.message);
+    }
+  }
+
+  function filterSuggestions(q){
+    if (!q) return [];
+    const qToks = q.toLowerCase().split(/[^a-z0-9]+/g).filter(Boolean);
+    const hint = UI.folderHint ? UI.folderHint.value : 'auto';
+    const out = [];
+    for (const it of Index.items){
+      if (!matchesFolderHint(it.dir, hint)) continue;
+      const base = it.base.toLowerCase();
+      let ok = true;
+      for (const t of qToks){ if (!base.includes(t)) { ok = false; break; } }
+      if (ok) out.push(it);
+      if (out.length >= 100) break;
+    }
+    return out;
+  }
+
+  function showSuggest(items){
+    if (!items || !items.length) { hideSuggest(); return; }
+    UI.suggest.innerHTML = '<ul></ul>';
+    const ul = UI.suggest.querySelector('ul');
+    items.forEach((it, idx) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="base">${it.base}</span><span class="dir">${it.dir.replace(ROOT,'')}</span>`;
+      li.dataset.path = it.path;
+      li.addEventListener('mouseenter', ()=> setActive(idx));
+      li.addEventListener('mousedown', (e)=>{ e.preventDefault(); }); // avoid losing focus
+      li.addEventListener('click', ()=> fetchAndApply(it.path));
+      ul.appendChild(li);
+    });
+    activeIndex = -1;
+    UI.suggest.style.display = 'block';
+  }
+  function hideSuggest(){ UI.suggest.style.display = 'none'; activeIndex = -1; }
+  function setActive(idx){
+    const lis = Array.from(UI.suggest.querySelectorAll('li'));
+    lis.forEach(li => li.classList.remove('active'));
+    if (idx >=0 && idx < lis.length){
+      lis[idx].classList.add('active');
+      activeIndex = idx;
+    }
+  }
+  function moveActive(delta){
+    const lis = Array.from(UI.suggest.querySelectorAll('li'));
+    if (!lis.length){ activeIndex = -1; return; }
+    let idx = activeIndex + delta;
+    if (idx < 0) idx = lis.length - 1;
+    if (idx >= lis.length) idx = 0;
+    setActive(idx);
+  }
+  function pickActive(){
+    const lis = Array.from(UI.suggest.querySelectorAll('li'));
+    if (activeIndex >=0 && activeIndex < lis.length){
+      const path = lis[activeIndex].dataset.path;
+      fetchAndApply(path);
+      return true;
+    }
+    return false;
+  }
+
+  async function onInput(){
+    await ensureIndex();
+    const q = (UI.input.value || '').trim();
+    const items = filterSuggestions(q);
+    showSuggest(items);
+  }
+
+  function injectUI(){
+    const refPanel = document.querySelector('.panel.upload') || document.body;
+    const row = document.createElement('div');
+    row.className = 'row mt';
+    row.innerHTML = `
+      <div class="gh-top">
+        <label id="autoGithubRefWrap" class="toggle" role="switch" aria-checked="false" title="When enabled, auto-apply a matching MERS from Mojang's GitHub">
+          <input id="autoGithubRef" type="checkbox" hidden>
+          <span class="label">Auto apply MERS via Bedrock Github</span>
+        </label>
+        <span class="gh-search-wrap">
+          <input id="ghSearch" type="search" placeholder="Search MERS .tga… (type to see dropdown)">
+          <div id="ghSuggest" class="gh-suggest"></div>
+        </span>
+        <span class="muted" id="ghStatus"></span>
+      </div>
+      <div class="gh-sub">
+        <select id="ghFolderHint" class="btn">
+          <option value="auto">Folder hint: Auto</option>
+          <option value="entity">Folder hint: Entity</option>
+          <option value="blocks">Folder hint: Blocks</option>
+          <option value="items">Folder hint: Items</option>
+          <option value="ui">Folder hint: UI</option>
+          <option value="environment">Folder hint: Environment</option>
+          <option value="misc">Folder hint: Misc</option>
+        </select>
+      </div>
+    `;
+    const rows = refPanel.querySelectorAll('.row.mt');
+    const anchor = rows[1] || rows[rows.length-1] || refPanel;
+    anchor.parentNode.insertBefore(row, anchor.nextSibling);
+
+    UI.row = row;
+    UI.toggleWrap = row.querySelector('#autoGithubRefWrap');
+    UI.chk = row.querySelector('#autoGithubRef');
+    UI.folderHint = row.querySelector('#ghFolderHint');
+    UI.input = row.querySelector('#ghSearch');
+    UI.suggest = row.querySelector('#ghSuggest');
+    UI.status = row.querySelector('#ghStatus');
+
+    // Toggle behavior
+    UI.toggleWrap.addEventListener('click', (e)=>{
+      if (e.target && e.target.tagName === 'INPUT') return;
+      UI.chk.checked = !UI.chk.checked;
+      UI.toggleWrap.setAttribute('aria-checked', UI.chk.checked ? 'true' : 'false');
+      if (UI.chk.checked) tryAutoForCurrentTexture();
+    });
+    UI.toggleWrap.addEventListener('keydown', (e)=>{
+      if (e.key === ' ' || e.key === 'Enter'){
+        e.preventDefault();
+        UI.chk.checked = !UI.chk.checked;
+        UI.toggleWrap.setAttribute('aria-checked', UI.chk.checked ? 'true' : 'false');
+        if (UI.chk.checked) tryAutoForCurrentTexture();
+      }
+    });
+    UI.toggleWrap.setAttribute('tabindex', '0');
+
+    // Search interactions
+    UI.input.addEventListener('input', onInput);
+    UI.input.addEventListener('focus', onInput);
+    UI.input.addEventListener('keydown', (e)=>{
+      if (e.key === 'ArrowDown'){ e.preventDefault(); moveActive(1); }
+      else if (e.key === 'ArrowUp'){ e.preventDefault(); moveActive(-1); }
+      else if (e.key === 'Enter'){ e.preventDefault(); if (!pickActive()) onInput(); }
+      else if (e.key === 'Escape'){ hideSuggest(); }
+    });
+    UI.input.addEventListener('blur', ()=> setTimeout(hideSuggest, 150) );
+    UI.folderHint.addEventListener('change', onInput);
+  }
+
+  function hookTextureLoad(){
+    if (!window.MERS || !MERS.FileManager || !MERS.FileManager.loadTexture) return;
+    const orig = MERS.FileManager.loadTexture;
+    MERS.FileManager.loadTexture = function(file){
+      LastTextureFile = file || null;
+      const ret = orig.apply(this, arguments);
+      setTimeout(()=>{
+        if (UI && UI.folderHint && UI.folderHint.value === 'auto'){
+          // leave as auto; user can change; no auto seed here to avoid surprise
+        }
+        tryAutoForCurrentTexture();
+      }, 0);
+      return ret;
+    };
+  }
+
+  function ready(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+  ready(function(){
+    injectUI();
+    hookTextureLoad();
+  });
+})();
+</script>
+
+
+
+
+
+
