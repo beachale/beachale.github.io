@@ -3869,7 +3869,514 @@ try {
   }
 })();
 // PANZOOM_PATCH_END
-</script></body>
+</script>
+<!-- === Patch: RGBA channel toggles (hide from preview + exclude from TGA) === -->
+<script>
+(function(){
+  function ready(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+  ready(function(){
+    if (!window.MERS || !MERS.StateManager) return;
+
+    // --- State: enabled flags per channel (default all true)
+    const st = MERS.StateManager.getState();
+    st.channelsEnabled = st.channelsEnabled || { r:true, g:true, b:true, a:true };
+
+    // --- Helper: make a nice toggle and wire it up
+    function injectToggle(groupId, chKey, labelText){
+      const group = document.getElementById(groupId);
+      if (!group) return;
+      const header = group.previousElementSibling; // the row above the curves group
+      if (!header) return;
+
+      // Avoid adding twice
+      if (header.querySelector('[data-chan-toggle="'+chKey+'"]')) return;
+
+      const wrap = document.createElement('label');
+      wrap.className = 'switch';
+      wrap.setAttribute('data-chan-toggle', chKey);
+      wrap.innerHTML = '<input type="checkbox" '+(st.channelsEnabled[chKey] ? 'checked' : '')+'> ' + (labelText || 'Active');
+      header.appendChild(wrap);
+
+      const input = wrap.querySelector('input');
+      input.addEventListener('change', function(e){
+        st.channelsEnabled[chKey] = !!e.target.checked;
+        try { MERS.PreviewManager && MERS.PreviewManager.drawPreview && MERS.PreviewManager.drawPreview(); } catch(e){}
+        try { MERS.HistogramManager && MERS.HistogramManager.drawHistogram && MERS.HistogramManager.drawHistogram(); } catch(e){}
+      });
+    }
+
+    // Insert toggles above each curves group
+    injectToggle('groupR', 'r', 'Active');
+    injectToggle('groupG', 'g', 'Active');
+    injectToggle('groupB', 'b', 'Active');
+    injectToggle('groupA', 'a', 'Active');
+
+    // --- Mask function used for preview/export
+    function maskChannels(imgd, enabled){
+      // Copy ImageData to avoid mutating the app's working buffer
+      const copy = new ImageData(new Uint8ClampedArray(imgd.data), imgd.width, imgd.height);
+      const d = copy.data;
+      const eR = !!enabled.r, eG = !!enabled.g, eB = !!enabled.b, eA = !!enabled.a;
+      for (let i=0; i<d.length; i+=4){
+        if (!eR) d[i]   = 0;
+        if (!eG) d[i+1] = 0;
+        if (!eB) d[i+2] = 0;
+        if (!eA) d[i+3] = 0;
+      }
+      return copy;
+    }
+    // Expose for other patches if needed
+    MERS._maskChannelsForOutput = maskChannels;
+
+    // --- Preview: patch renderForMode so only OUT is masked
+    if (MERS.ImageProcessor && typeof MERS.ImageProcessor.renderForMode === 'function'){
+      const origRender = MERS.ImageProcessor.renderForMode;
+      MERS.ImageProcessor.renderForMode = function(imgd, mode, grayscale){
+        try {
+          const S = MERS.StateManager.getState();
+          if (S && imgd === S.out && S.channelsEnabled){
+            const masked = maskChannels(imgd, S.channelsEnabled);
+            return origRender(masked, mode, grayscale);
+          }
+        } catch(e){ /* fall through */ }
+        return origRender(imgd, mode, grayscale);
+      };
+    }
+
+    // --- Export: override TGA export to use masked buffer
+    if (MERS.ExportManager && typeof MERS.ExportManager.exportTGA === 'function' && MERS.ImageProcessor && MERS.ImageProcessor.encodeTGA){
+      MERS.ExportManager.exportTGA = function(){
+        const S = MERS.StateManager.getState();
+        if (!S || !S.out) return;
+        const masked = maskChannels(S.out, S.channelsEnabled || {r:true,g:true,b:true,a:true});
+        const data = MERS.ImageProcessor.encodeTGA(masked);
+        const blob = new Blob([data], { type: 'application/octet-stream' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        const base = (document.getElementById('texName')?.textContent || 'texture').replace(/\.(png|tga)$/i, '');
+        a.download = base + '_mers.tga';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      };
+    }
+  });
+})();
+</script>
+
+
+<script>
+// === Patch: ZIP export respects channel toggles ===
+(function () {
+  function ready(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+  ready(function(){
+    if (!window.MERS || !MERS.StateManager || !MERS.ExportManager) return;
+
+    // Reuse the same mask function that TGA export uses
+    const mask = MERS._maskChannelsForOutput || function(imgd, enabled){
+      const copy = new ImageData(new Uint8ClampedArray(imgd.data), imgd.width, imgd.height);
+      const d = copy.data, e = { r:!!enabled.r, g:!!enabled.g, b:!!enabled.b, a:!!enabled.a };
+      for (let i=0;i<d.length;i+=4){ if(!e.r)d[i]=0; if(!e.g)d[i+1]=0; if(!e.b)d[i+2]=0; if(!e.a)d[i+3]=0; }
+      return copy;
+    };
+
+    // Override ZIP export to build files from the masked buffer
+    MERS.ExportManager.exportZIP = async function(){
+      const S = MERS.StateManager.getState();
+      if (!S || !S.out) return;
+
+      const enabled = S.channelsEnabled || { r:true, g:true, b:true, a:true };
+      const outMasked = mask(S.out, enabled);
+
+      const zip = new JSZip();
+
+      async function channelPNG(imgd, ch){
+        const W = imgd.width, H = imgd.height;
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        const ctx = c.getContext('2d');
+        const id = ctx.createImageData(W, H);
+        const src = imgd.data, dst = id.data;
+        for (let i=0; i<src.length; i+=4){
+          const v = (ch==='r') ? src[i] : (ch==='g') ? src[i+1] : (ch==='b') ? src[i+2] : src[i+3];
+          dst[i]=dst[i+1]=dst[i+2]=v; dst[i+3]=255;
+        }
+        ctx.putImageData(id, 0, 0);
+        return new Promise(res => c.toBlob(b => res(b), 'image/png'));
+      }
+
+      const files = [['r','Red (metalness)'], ['g','Green (emissive)'], ['b','Blue (roughness)'], ['a','Alpha (subsurface)']];
+      for (const [ch, name] of files){
+        const blob = await channelPNG(outMasked, ch);
+        zip.file(`${name}.png`, blob);
+      }
+
+      // Also include a masked TGA in the zip for parity with standalone TGA export
+      const tgaBlob = new Blob([MERS.ImageProcessor.encodeTGA(outMasked)], { type: 'application/octet-stream' });
+      zip.file('mers.tga', tgaBlob);
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(content);
+      const base = (document.getElementById('texName')?.textContent || 'texture').replace(/\.(png|tga)$/i, '');
+      a.download = base + '_mers.zip';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+  });
+})();
+</script>
+
+<!-- === Patch: Copy over Reference MERS channel(s) to Your MERS (per-channel toggles) === -->
+<script>
+(function(){
+  function ready(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+  ready(function(){
+    if (!window.MERS || !MERS.StateManager || !MERS.Core) return;
+
+    // --- State: add copyRefChannels flags (default all OFF)
+    const st = MERS.StateManager.getState();
+    st.copyRefChannels = st.copyRefChannels || { r:false, g:false, b:false, a:false };
+
+    // --- Inject UI above the Reference TGA canvas
+    (function injectUI(){
+      const wrapRef = document.getElementById('wrapRef');
+      const canvasRef = document.getElementById('canvasRef');
+      if (!wrapRef || !canvasRef) return;
+      if (document.getElementById('copyRefRow')) return; // avoid dup
+
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.id = 'copyRefRow';
+      row.style.cssText = 'align-items:center; gap:8px; padding:6px 8px; border-bottom:1px dashed var(--border);';
+      row.innerHTML = `
+        <span class="muted" style="font-size:12px; white-space:nowrap;">Copy over Reference MERS channel to Your MERS:</span>
+        <label class="switch" title="Copy Reference ➜ Your: R (Metalness)"><input id="copyRef_r" type="checkbox"/><span>R</span></label>
+        <label class="switch" title="Copy Reference ➜ Your: G (Emissive)"><input id="copyRef_g" type="checkbox"/><span>G</span></label>
+        <label class="switch" title="Copy Reference ➜ Your: B (Roughness)"><input id="copyRef_b" type="checkbox"/><span>B</span></label>
+        <label class="switch" title="Copy Reference ➜ Your: A (Subsurface)"><input id="copyRef_a" type="checkbox"/><span>A</span></label>
+      `;
+      wrapRef.insertBefore(row, canvasRef);
+    })();
+
+    // --- Wire up UI
+    function syncUI(){
+      const s = MERS.StateManager.getState();
+      ['r','g','b','a'].forEach(ch => {
+        const el = document.getElementById('copyRef_' + ch);
+        if (!el) return;
+        el.checked = !!(s.copyRefChannels && s.copyRefChannels[ch]);
+        // Disable when no reference loaded
+        el.disabled = !s.ref;
+        el.parentElement.style.opacity = el.disabled ? 0.5 : 1;
+      });
+    }
+    function bindUI(){
+      ['r','g','b','a'].forEach(ch => {
+        const el = document.getElementById('copyRef_' + ch);
+        if (!el) return;
+        el.addEventListener('change', function(){
+          const s = MERS.StateManager.getState();
+          s.copyRefChannels = s.copyRefChannels || { r:false, g:false, b:false, a:false };
+          s.copyRefChannels[ch] = !!this.checked;
+          // Ensure ref is resampled for current src size
+          if (s.src && s.ref) {
+            try { MERS.Core.rebuildRefColorMap(); } catch(e){}
+          }
+          MERS.Core.recompute();
+        });
+      });
+    }
+    syncUI(); bindUI();
+
+    // --- Keep UI in sync when ref loads / controls update
+    if (MERS.UIManager && typeof MERS.UIManager.updateRefControls === 'function'){
+      const origUpd = MERS.UIManager.updateRefControls;
+      MERS.UIManager.updateRefControls = function(){
+        try { origUpd.apply(this, arguments); } finally { syncUI(); }
+      };
+    }
+
+    // --- Patch Core.recompute to copy channels from ref BEFORE painting
+    if (MERS.Core && typeof MERS.Core.recompute === 'function'){
+      const origRecompute = MERS.Core.recompute;
+      MERS.Core.recompute = function(){
+        // First run normal pipeline
+        origRecompute();
+
+        try {
+          const s = MERS.StateManager.getState();
+          if (!s || !s.out || !s.ref || !s.src) return;
+          const flags = s.copyRefChannels || {r:false,g:false,b:false,a:false};
+          if (!flags.r && !flags.g && !flags.b && !flags.a) return;
+
+          // Ensure ref is resampled to match out size
+          if (!s.refRes || s.refRes.width !== s.src.width || s.refRes.height !== s.src.height) {
+            if (MERS.ImageProcessor && MERS.ImageProcessor.resampleImageData) {
+              s.refRes = MERS.ImageProcessor.resampleImageData(s.ref, s.src.width, s.src.height);
+            } else {
+              return;
+            }
+          }
+
+          const out = s.out.data;
+          const ref = s.refRes.data;
+          const N = out.length;
+          for (let i=0; i<N; i+=4){
+            if (flags.r) out[i]   = ref[i];
+            if (flags.g) out[i+1] = ref[i+1];
+            if (flags.b) out[i+2] = ref[i+2];
+            if (flags.a) out[i+3] = ref[i+3];
+          }
+
+          // Re-apply paint overlays so brush/bucket stay on top
+          try { MERS.PaintTool && MERS.PaintTool.applyPaintOnOut && MERS.PaintTool.applyPaintOnOut(); } catch(e){}
+          // Redraw UI
+          try { MERS.PreviewManager && MERS.PreviewManager.drawPreview && MERS.PreviewManager.drawPreview(); } catch(e){}
+          try { MERS.HistogramManager && MERS.HistogramManager.drawHistogram && MERS.HistogramManager.drawHistogram(); } catch(e){}
+        } catch(e){
+          console.warn('copyRefChannels patch error:', e);
+        }
+      };
+    }
+
+  }); // ready
+})();
+</script>
+
+
+<!-- === Patch 2: Move copy-channel toggles into Reference header (above canvas) === -->
+<script>
+(function(){
+  function ready(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+  ready(function(){
+    if (!window.MERS || !MERS.StateManager) return;
+
+    const st = MERS.StateManager.getState();
+    st.copyRefChannels = st.copyRefChannels || { r:false, g:false, b:false, a:false };
+
+    // Remove previous inline row if it exists (so controls aren't inside the canvas area)
+    const oldRow = document.getElementById('copyRefRow');
+    if (oldRow && oldRow.parentElement) oldRow.parentElement.removeChild(oldRow);
+
+    // Inject into the existing Reference header toolbar to ensure it's truly "above the canvas"
+    const wrapRef = document.getElementById('wrapRef');
+    const toolbar = wrapRef ? wrapRef.querySelector('.canvasHeader .toolbar') : null;
+    if (toolbar && !document.getElementById('copyRefToolbarGroup')){
+      const group = document.createElement('div');
+      group.id = 'copyRefToolbarGroup';
+      group.className = 'toolbarGroup';
+      group.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+      group.innerHTML = `
+        <span class="muted" style="font-size:12px;">Copy over Reference MERS channel to Your MERS:</span>
+        <label class="switch" title="Copy Reference ➜ Your: R (Metalness)"><input id="copyRef_r" type="checkbox"/><span>R</span></label>
+        <label class="switch" title="Copy Reference ➜ Your: G (Emissive)"><input id="copyRef_g" type="checkbox"/><span>G</span></label>
+        <label class="switch" title="Copy Reference ➜ Your: B (Roughness)"><input id="copyRef_b" type="checkbox"/><span>B</span></label>
+        <label class="switch" title="Copy Reference ➜ Your: A (Subsurface)"><input id="copyRef_a" type="checkbox"/><span>A</span></label>
+      `;
+      toolbar.appendChild(group);
+    }
+
+    function syncUI(){
+      const s = MERS.StateManager.getState();
+      ['r','g','b','a'].forEach(ch => {
+        const el = document.getElementById('copyRef_' + ch);
+        if (!el) return;
+        el.checked = !!(s.copyRefChannels && s.copyRefChannels[ch]);
+        el.disabled = !s.ref;
+        if (el.parentElement) el.parentElement.style.opacity = el.disabled ? 0.5 : 1;
+      });
+    }
+    function bindUI(){
+      ['r','g','b','a'].forEach(ch => {
+        const el = document.getElementById('copyRef_' + ch);
+        if (!el) return;
+        el.onchange = function(){
+          const s = MERS.StateManager.getState();
+          s.copyRefChannels = s.copyRefChannels || { r:false, g:false, b:false, a:false };
+          s.copyRefChannels[ch] = !!this.checked;
+          try { if (s.src && s.ref && MERS.Core.rebuildRefColorMap) MERS.Core.rebuildRefColorMap(); } catch(e){}
+          MERS.Core.recompute();
+        };
+      });
+    }
+
+    // Hook into UI refreshes
+    if (MERS.UIManager && typeof MERS.UIManager.updateRefControls === 'function'){
+      const origUpd = MERS.UIManager.updateRefControls;
+      if (!MERS.__copyRefToolbarSyncPatched){
+        MERS.UIManager.updateRefControls = function(){
+          try { origUpd.apply(this, arguments); } finally { syncUI(); }
+        };
+        MERS.__copyRefToolbarSyncPatched = true;
+      }
+    }
+
+    // Ensure recompute patch applied only once (the earlier patch might already do this)
+    if (MERS.Core && !MERS.__copyRefChannelsPatched){
+      const origRecompute = MERS.Core.recompute;
+      MERS.Core.recompute = function(){
+        origRecompute();
+        try {
+          const s = MERS.StateManager.getState();
+          if (!s || !s.out || !s.ref || !s.src) return;
+          const f = s.copyRefChannels || {r:false,g:false,b:false,a:false};
+          if (!f.r && !f.g && !f.b && !f.a) return;
+          // Resample ref to src size if helper exists
+          if (!s.refRes || s.refRes.width !== s.src.width || s.refRes.height !== s.src.height) {
+            if (MERS.ImageProcessor && MERS.ImageProcessor.resampleImageData) {
+              s.refRes = MERS.ImageProcessor.resampleImageData(s.ref, s.src.width, s.src.height);
+            } else { return; }
+          }
+          const out = s.out.data, ref = s.refRes.data;
+          for (let i=0;i<out.length;i+=4){
+            if (f.r) out[i]   = ref[i];
+            if (f.g) out[i+1] = ref[i+1];
+            if (f.b) out[i+2] = ref[i+2];
+            if (f.a) out[i+3] = ref[i+3];
+          }
+          if (MERS.PaintTool && MERS.PaintTool.applyPaintOnOut) MERS.PaintTool.applyPaintOnOut();
+          if (MERS.PreviewManager && MERS.PreviewManager.drawPreview) MERS.PreviewManager.drawPreview();
+          if (MERS.HistogramManager && MERS.HistogramManager.drawHistogram) MERS.HistogramManager.drawHistogram();
+        } catch(e){ console.warn('copyRefChannels (header) error:', e); }
+      };
+      MERS.__copyRefChannelsPatched = true;
+    }
+
+    // Initial setup
+    syncUI(); bindUI();
+  });
+})();
+</script>
+
+
+<!-- === Patch 3: Place copy-channel toggles inside the top control panel (RIGHT -> panel -> row) === -->
+<script>
+(function(){
+  function ready(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+  ready(function(){
+    if (!window.MERS || !MERS.StateManager) return;
+
+    // Clean up any older placements of this control
+    ['copyRefRow','copyRefToolbarGroup','copyRefTopGroup'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement) el.parentElement.removeChild(el);
+    });
+
+    const s = MERS.StateManager.getState();
+    s.copyRefChannels = s.copyRefChannels || { r:false, g:false, b:false, a:false };
+
+    // Find the row with Use ref map / Match colors / Grayscale
+    const useRef = document.getElementById('useRefMapTop');
+    const row = useRef ? useRef.closest('.row') : null;
+    if (!row) return;
+
+    // Build the compact group to live inside the panel row
+    const group = document.createElement('div');
+    group.id = 'copyRefTopGroup';
+    group.className = 'row';
+    group.style.cssText = 'gap:10px; align-items:center; margin-left:12px;';
+
+    // Label
+    const label = document.createElement('span');
+    label.className = 'muted';
+    label.style.cssText = 'font-size:12px; white-space:nowrap;';
+    label.textContent = 'Copy over Reference MERS channel to Your MERS:';
+    group.appendChild(label);
+
+    // Channel toggles
+    ['r','g','b','a'].forEach(ch => {
+      const lab = document.createElement('label');
+      lab.className = 'switch';
+      lab.title = 'Copy Reference → Your: ' + ch.toUpperCase();
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.id = 'copyRef_' + ch;
+      const span = document.createElement('span');
+      span.textContent = ch.toUpperCase();
+      lab.appendChild(input);
+      lab.appendChild(span);
+      group.appendChild(lab);
+    });
+
+    // Insert after the ref-matching select (if present), otherwise after the Use ref map switch
+    const refSel = document.getElementById('refMatchTop');
+    if (refSel && refSel.parentElement === row) {
+      row.insertBefore(group, refSel.nextSibling);
+    } else {
+      // fallback: append at end of row
+      row.appendChild(group);
+    }
+
+    function syncUI(){
+      const st = MERS.StateManager.getState();
+      ['r','g','b','a'].forEach(ch => {
+        const el = document.getElementById('copyRef_' + ch);
+        if (!el) return;
+        el.checked = !!(st.copyRefChannels && st.copyRefChannels[ch]);
+        // disabled if no ref is loaded
+        el.disabled = !st.ref;
+        if (el.parentElement) el.parentElement.style.opacity = el.disabled ? 0.5 : 1;
+      });
+    }
+    function bindUI(){
+      ['r','g','b','a'].forEach(ch => {
+        const el = document.getElementById('copyRef_' + ch);
+        if (!el) return;
+        el.addEventListener('change', function(){
+          const st = MERS.StateManager.getState();
+          st.copyRefChannels = st.copyRefChannels || { r:false, g:false, b:false, a:false };
+          st.copyRefChannels[ch] = !!this.checked;
+          try { if (st.src && st.ref && MERS.Core.rebuildRefColorMap) MERS.Core.rebuildRefColorMap(); } catch(e){}
+          if (MERS.Core && MERS.Core.recompute) MERS.Core.recompute();
+        });
+      });
+    }
+
+    // Hook into ref control updates so enable/disable follows ref load state
+    if (MERS.UIManager && typeof MERS.UIManager.updateRefControls === 'function' && !MERS.__copyRefTopSyncPatched){
+      const orig = MERS.UIManager.updateRefControls;
+      MERS.UIManager.updateRefControls = function(){
+        try { orig.apply(this, arguments); } finally { syncUI(); }
+      };
+      MERS.__copyRefTopSyncPatched = true;
+    }
+
+    // Ensure recompute patch is present only once
+    if (MERS.Core && !MERS.__copyRefChannelsPatched){
+      const base = MERS.Core.recompute;
+      MERS.Core.recompute = function(){
+        base();
+        try {
+          const st = MERS.StateManager.getState();
+          if (!st || !st.out || !st.ref || !st.src) return;
+          const f = st.copyRefChannels || {r:false,g:false,b:false,a:false};
+          if (!f.r && !f.g && !f.b && !f.a) return;
+          if (!st.refRes || st.refRes.width !== st.src.width || st.refRes.height !== st.src.height) {
+            if (MERS.ImageProcessor && MERS.ImageProcessor.resampleImageData) {
+              st.refRes = MERS.ImageProcessor.resampleImageData(st.ref, st.src.width, st.src.height);
+            } else { return; }
+          }
+          const out = st.out.data, ref = st.refRes.data;
+          for (let i=0;i<out.length;i+=4){
+            if (f.r) out[i]   = ref[i];
+            if (f.g) out[i+1] = ref[i+1];
+            if (f.b) out[i+2] = ref[i+2];
+            if (f.a) out[i+3] = ref[i+3];
+          }
+          if (MERS.PaintTool && MERS.PaintTool.applyPaintOnOut) MERS.PaintTool.applyPaintOnOut();
+          if (MERS.PreviewManager && MERS.PreviewManager.drawPreview) MERS.PreviewManager.drawPreview();
+          if (MERS.HistogramManager && MERS.HistogramManager.drawHistogram) MERS.HistogramManager.drawHistogram();
+        } catch(e){ console.warn('copyRefChannels (top panel) error:', e); }
+      };
+      MERS.__copyRefChannelsPatched = true;
+    }
+
+    syncUI();
+    bindUI();
+  });
+})();
+</script>
+
+</body>
 </html>
 <!-- === Patch: Sync Original texture canvas (src) with pan/zoom & picking === -->
 <script>
