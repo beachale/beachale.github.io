@@ -1,9 +1,10 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
 <style id="hide-upscaled-tolerance">#upTolWrapLeft, #upTolWrapTop { display: none !important; }</style>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
 <title>MERS Texture Lab – Clean Rebuild</title>
 <style>
   :root {
@@ -102,174 +103,169 @@
   }
 
   /* Lock preview row height so tall reference TGAs don't expand layout */
-  #wrapOut, #wrapRef { height: 384px; }
+  #wrapOut, #wrapRef, #wrapSrc { height: 384px; }
 </style>
 </head>
 <body>
-  <header>
-    <h1>MERS Texture Lab</h1>
-    <span class="sub">PNG ⇢ MERS TGA (Metalness • Emissive • Roughness • SSS)</span>
-    <span class="pill">Dark UI • Zoom/Pan • Curves • Histogram • Noise • Animation</span>
-    <div style="flex:1"></div>
-    <button class="btn small" id="darkToggle">🌙 Dark mode</button>
-  </header>
-
-  <div class="wrap">
-    <!-- LEFT -->
-    <div class="left">
-      <div class="panel upload">
-        <h3>Texture input</h3>
-        <p class="muted">Drop a PNG/TGA here or pick a file.</p>
-        <div class="row mt">
-          <button class="btn" id="pickTex">Choose PNG/TGA</button>
-          <input id="fileTex" type="file" accept=".png,.tga" />
-          <span id="texName" class="chip">No texture</span>
-        </div>
-        <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
-        <h3>Reference MERS (optional)</h3>
-        <p class="muted">Load a .tga MERS file to preview beside your result or drive per-pixel mapping.</p>
-        <div class="row mt">
-          <button class="btn" id="pickRef">Choose TGA</button>
-          <input id="fileRef" type="file" accept=".tga" />
-          <span id="refName" class="chip">No reference</span>
-        </div>
-        <div class="row mt">
-          <label class="switch"><input id="useRefMap" type="checkbox"> Use reference as per-pixel map</label>
-          <select id="refMatchLeft" class="btn refMatchSel">
-            <option value="color">Match colors</option>
-            <option value="pixel">Match by pixel</option>
-              <option value="upscaled_v2">Upscaled (unreliable)</option>
-              <option value="vanilla_tga">For weird mers uv map</option>
-          </select>
-          <label class="switch"><input id="invertAll" type="checkbox"> Invert all channels</label>
-          <label class="switch"><input id="grayscaleMode" type="checkbox"> Grayscale channel preview</label>
-        </div>
-      </div>
-      <div class="panel">
-        <h3>Curves</h3>
-        <div class="row mt">
-          <button class="btn" id="resetSliders">Reset sliders</button>
-          <button class="btn ghost" id="resetCurves">Reset curves</button>
-        </div>
-        <div class="grid-2 curvesGrid">
-          <div>
-            <div class="row" style="justify-content:space-between"><span class="chip">Red • Metalness</span><span class="muted">click to add • drag • right‑click to delete</span></div>
-            <div class="group" id="groupR"></div>
-            <canvas id="curveR" class="curve" width="520" height="160"></canvas>
-          </div>
-          <div>
-            <div class="row" style="justify-content:space-between"><span class="chip">Green • Emissive</span><span class="muted">click to add • drag • right‑click to delete</span></div>
-            <div class="group" id="groupG"></div>
-            <canvas id="curveG" class="curve" width="520" height="160"></canvas>
-          </div>
-          <div>
-            <div class="row" style="justify-content:space-between"><span class="chip">Blue • Roughness</span><span class="muted">click to add • drag • right‑click to delete</span></div>
-            <div class="group" id="groupB"></div>
-            <canvas id="curveB" class="curve" width="520" height="160"></canvas>
-          </div>
-          <div>
-            <div class="row" style="justify-content:space-between"><span class="chip">Alpha • Subsurface</span><span class="muted">click to add • drag • right‑click to delete</span></div>
-            <div class="group" id="groupA"></div>
-            <canvas id="curveA" class="curve" width="520" height="160"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h3>Noise</h3>
-        <div class="grid-2">
-          <div class="group">
-            <div class="slider-row"><label for="noiseScale">Scale</label><input id="noiseScale" type="range" min="2" max="256" value="32"><span id="noiseScaleV">32</span></div>
-            <div class="slider-row"><label for="noiseAmp">Amplitude</label><input id="noiseAmp" type="range" min="0" max="255" value="0"><span id="noiseAmpV">0</span></div>
-            <div class="row">
-              <select id="noiseType" class="btn">
-                <option value="perlin">Perlin</option>
-                <option value="mojang">Mojang experimental noise</option>
-                <option value="custom" disabled>Custom (coming)</option>
-              </select>
-              <select id="noiseChannel" class="btn">
-                <option value="none">No channel</option>
-                <option value="r">Red (Metalness)</option>
-                <option value="g">Green (Emissive)</option>
-                <option value="b">Blue (Roughness)</option>
-                <option value="a">Alpha (SSS)</option>
-              </select>
-              <input id="noiseSeedInput" type="number" class="btn" style="width:120px" placeholder="Seed" />
-              <button class="btn" id="noiseSeedBtn">New seed</button>
-              <label class="switch"><input id="rememberSeed" type="checkbox"> Remember</label>
-            </div>
-          </div>
-          <div class="group">
-            <label class="switch"><input id="noiseEnabled" type="checkbox"> Apply noise to selected channel</label>
-            <label class="switch"><input id="noiseMaskAlpha" type="checkbox" checked> Only on non‑transparent pixels</label>
-            <p class="muted">Noise is generated at the texture resolution and previewed/exported into the chosen channel.</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h3>Animation</h3>
-        <div class="grid-2">
-          <div class="group">
-            <div class="slider-row slider-row-anim"><label for="frameW">Frame width</label><input id="frameW" type="range" min="8" max="4096" step="1" value="16"><input id="frameWn" type="number" min="8" max="4096" step="1" class="btn" style="width:80px" value="16"><span id="frameWV">16</span></div>
-            <div class="slider-row slider-row-anim"><label for="frameH">Frame height</label><input id="frameH" type="range" min="8" max="4096" step="1" value="16"><input id="frameHn" type="number" min="8" max="4096" step="1" class="btn" style="width:80px" value="16"><span id="frameHV">16</span></div>
-            <div class="slider-row slider-row-anim"><label for="frameMs">Frame time (ms)</label><input id="frameMs" type="range" min="30" max="1000" value="120"><input id="frameMsn" type="number" min="30" max="1000" step="1" class="btn" style="width:80px" value="120"><span id="frameMsV">120</span></div>
-          </div>
-          <div class="group">
-            <label class="switch"><input id="animOn" type="checkbox"> Animate (frames stacked top→bottom)</label>
-            <div class="row"><span class="muted">Index</span><input id="frameIndex" class="btn" type="number" min="0" value="0" style="width:80px"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Painting tool panel -->
-      <div class="panel">
-        <h3>Paint</h3>
-        <div class="row mt">
-          <label class="switch" style="display:flex;align-items:center;gap:6px;font-size:12px;"><span>Color</span><input id="brushColor" type="color" value="#ff0000" style="width:32px;height:32px;border:none;padding:0;margin:0;"></label>
-          <label class="switch" style="display:flex;align-items:center;gap:6px;font-size:12px;"><span>Size</span><input id="brushSize" type="number" min="1" max="64" value="1" class="btn" style="width:60px"></label>
-          <button class="btn" id="toggleBrush">🖌️ Brush: Off</button>
-          <button class="btn" id="toggleBucket">🪣 Bucket: Off</button>
-          <button class="btn" id="toggleSelect">🎯 Select: Off</button>
-          <button class="btn" id="toggleEyedropper">🧪 Eyedropper: Off</button>
-          <button class="btn" id="fillSelection" disabled>🎨 Fill</button>
-          <button class="btn small" id="clearSelection" disabled>✕ Clear</button>
-          <button class="btn small" id="undoPaint" title="Undo last stroke" disabled>↺ Undo</button>
-          <button class="btn small" id="redoPaint" title="Redo" disabled>↻ Redo</button>
-        </div>
-        <div class="row" style="margin-top:4px">
-          <label class="switch" style="display:flex;align-items:center;gap:6px;font-size:12px;"><input id="brushCopyAlpha" type="checkbox" style="margin:0"><span>Copy transparency</span></label>
-        </div>
-        <p class="muted" style="margin-top:8px">With the Eyedropper, click any preview to pick a colour (and optionally its transparency), then paint on the left preview. Use Select tool to select pixels of the same color value in single-channel mode, then Fill to apply color to selection. Hold Shift to add another colour/value to the current selection. Use right-click to pan when tools are enabled.</p>
-      </div>
-
-      <div class="panel" id="layersPanel">
-        <h3>Layers</h3>
-        <div class="layersList">
-          <div class="layer-row" data-layer="brush">
-            <button class="btn icon eye" id="layer_vis_brush" title="Show/Hide">👁</button>
-            <span class="layer-name">🖌️ Brush</span>
-          </div>
-          <div class="layer-row" data-layer="bucket">
-            <button class="btn icon eye" id="layer_vis_bucket" title="Show/Hide">👁</button>
-            <span class="layer-name">🪣 Bucket</span>
-          </div>
-          <div class="layer-row" data-layer="sliders">
-            <button class="btn icon eye" id="layer_vis_sliders" title="Show/Hide">👁</button>
-            <span class="layer-name">🎛️ Sliders</span>
-          </div>
-          <div class="layer-row" data-layer="curves">
-            <button class="btn icon eye" id="layer_vis_curves" title="Show/Hide">👁</button>
-            <span class="layer-name">📈 Curves (mask)</span>
-          </div>
-          <div class="layer-row" data-layer="noise">
-            <button class="btn icon eye" id="layer_vis_noise" title="Show/Hide">👁</button>
-            <span class="layer-name">✨ Noise</span>
-          </div>
-        </div>
-        <p class="muted" style="margin-top:6px">Top overrides bottom. Click 👁 to toggle visibility.</p>
-      </div>
-      <style id="layersPanelStyle">
+<header>
+<h1>MERS Texture Lab</h1>
+<span class="sub">PNG ⇢ MERS TGA (Metalness • Emissive • Roughness • SSS)</span>
+<span class="pill">Dark UI • Zoom/Pan • Curves • Histogram • Noise • Animation</span>
+<div style="flex:1"></div>
+<button class="btn small" id="darkToggle">🌙 Dark mode</button>
+</header>
+<div class="wrap">
+<!-- LEFT -->
+<div class="left">
+<div class="panel upload">
+<h3>Texture input</h3>
+<p class="muted">Drop a PNG/TGA here or pick a file.</p>
+<div class="row mt">
+<button class="btn" id="pickTex">Choose PNG/TGA</button>
+<input accept=".png,.tga" id="fileTex" type="file"/>
+<span class="chip" id="texName">No texture</span>
+</div>
+<hr style="border:none;border-top:1px solid var(--border);margin:12px 0"/>
+<h3>Reference MERS (optional)</h3>
+<p class="muted">Load a .tga MERS file to preview beside your result or drive per-pixel mapping.</p>
+<div class="row mt">
+<button class="btn" id="pickRef">Choose TGA</button>
+<input accept=".tga" id="fileRef" type="file"/>
+<span class="chip" id="refName">No reference</span>
+</div>
+<div class="row mt">
+<label class="switch"><input id="useRefMap" type="checkbox"/> Use reference as per-pixel map</label>
+<select class="btn refMatchSel" id="refMatchLeft">
+<option value="color">Match colors</option>
+<option value="pixel">Match by pixel</option>
+<option value="upscaled_v2">Upscaled (unreliable)</option>
+<option value="vanilla_tga">For weird mers uv map</option>
+</select>
+<label class="switch"><input id="invertAll" type="checkbox"/> Invert all channels</label>
+<label class="switch"><input id="grayscaleMode" type="checkbox"/> Grayscale channel preview</label>
+</div>
+</div>
+<div class="panel">
+<h3>Curves</h3>
+<div class="row mt">
+<button class="btn" id="resetSliders">Reset sliders</button>
+<button class="btn ghost" id="resetCurves">Reset curves</button>
+</div>
+<div class="grid-2 curvesGrid">
+<div>
+<div class="row" style="justify-content:space-between"><span class="chip">Red • Metalness</span><span class="muted">click to add • drag • right‑click to delete</span></div>
+<div class="group" id="groupR"></div>
+<canvas class="curve" height="160" id="curveR" width="520"></canvas>
+</div>
+<div>
+<div class="row" style="justify-content:space-between"><span class="chip">Green • Emissive</span><span class="muted">click to add • drag • right‑click to delete</span></div>
+<div class="group" id="groupG"></div>
+<canvas class="curve" height="160" id="curveG" width="520"></canvas>
+</div>
+<div>
+<div class="row" style="justify-content:space-between"><span class="chip">Blue • Roughness</span><span class="muted">click to add • drag • right‑click to delete</span></div>
+<div class="group" id="groupB"></div>
+<canvas class="curve" height="160" id="curveB" width="520"></canvas>
+</div>
+<div>
+<div class="row" style="justify-content:space-between"><span class="chip">Alpha • Subsurface</span><span class="muted">click to add • drag • right‑click to delete</span></div>
+<div class="group" id="groupA"></div>
+<canvas class="curve" height="160" id="curveA" width="520"></canvas>
+</div>
+</div>
+</div>
+<div class="panel">
+<h3>Noise</h3>
+<div class="grid-2">
+<div class="group">
+<div class="slider-row"><label for="noiseScale">Scale</label><input id="noiseScale" max="256" min="2" type="range" value="32"/><span id="noiseScaleV">32</span></div>
+<div class="slider-row"><label for="noiseAmp">Amplitude</label><input id="noiseAmp" max="255" min="0" type="range" value="0"/><span id="noiseAmpV">0</span></div>
+<div class="row">
+<select class="btn" id="noiseType">
+<option value="perlin">Perlin</option>
+<option value="mojang">Mojang experimental noise</option>
+<option disabled="" value="custom">Custom (coming)</option>
+</select>
+<select class="btn" id="noiseChannel">
+<option value="none">No channel</option>
+<option value="r">Red (Metalness)</option>
+<option value="g">Green (Emissive)</option>
+<option value="b">Blue (Roughness)</option>
+<option value="a">Alpha (SSS)</option>
+</select>
+<input class="btn" id="noiseSeedInput" placeholder="Seed" style="width:120px" type="number"/>
+<button class="btn" id="noiseSeedBtn">New seed</button>
+<label class="switch"><input id="rememberSeed" type="checkbox"> Remember</input></label>
+</div>
+</div>
+<div class="group">
+<label class="switch"><input id="noiseEnabled" type="checkbox"/> Apply noise to selected channel</label>
+<label class="switch"><input checked="" id="noiseMaskAlpha" type="checkbox"/> Only on non‑transparent pixels</label>
+<p class="muted">Noise is generated at the texture resolution and previewed/exported into the chosen channel.</p>
+</div>
+</div>
+</div>
+<div class="panel">
+<h3>Animation</h3>
+<div class="grid-2">
+<div class="group">
+<div class="slider-row slider-row-anim"><label for="frameW">Frame width</label><input id="frameW" max="4096" min="8" step="1" type="range" value="16"/><input class="btn" id="frameWn" max="4096" min="8" step="1" style="width:80px" type="number" value="16"/><span id="frameWV">16</span></div>
+<div class="slider-row slider-row-anim"><label for="frameH">Frame height</label><input id="frameH" max="4096" min="8" step="1" type="range" value="16"/><input class="btn" id="frameHn" max="4096" min="8" step="1" style="width:80px" type="number" value="16"/><span id="frameHV">16</span></div>
+<div class="slider-row slider-row-anim"><label for="frameMs">Frame time (ms)</label><input id="frameMs" max="1000" min="30" type="range" value="120"/><input class="btn" id="frameMsn" max="1000" min="30" step="1" style="width:80px" type="number" value="120"/><span id="frameMsV">120</span></div>
+</div>
+<div class="group">
+<label class="switch"><input id="animOn" type="checkbox"/> Animate (frames stacked top→bottom)</label>
+<div class="row"><span class="muted">Index</span><input class="btn" id="frameIndex" min="0" style="width:80px" type="number" value="0"/></div>
+</div>
+</div>
+</div>
+<!-- Painting tool panel -->
+<div class="panel">
+<h3>Paint</h3>
+<div class="row mt">
+<label class="switch" style="display:flex;align-items:center;gap:6px;font-size:12px;"><span>Color</span><input id="brushColor" style="width:32px;height:32px;border:none;padding:0;margin:0;" type="color" value="#ff0000"/></label>
+<label class="switch" style="display:flex;align-items:center;gap:6px;font-size:12px;"><span>Size</span><input class="btn" id="brushSize" max="64" min="1" style="width:60px" type="number" value="1"/></label>
+<button class="btn" id="toggleBrush">🖌️ Brush: Off</button>
+<button class="btn" id="toggleBucket">🪣 Bucket: Off</button>
+<button class="btn" id="toggleSelect">🎯 Select: Off</button>
+<button class="btn" id="toggleEyedropper">🧪 Eyedropper: Off</button>
+<button class="btn" disabled="" id="fillSelection">🎨 Fill</button>
+<button class="btn small" disabled="" id="clearSelection">✕ Clear</button>
+<button class="btn small" disabled="" id="undoPaint" title="Undo last stroke">↺ Undo</button>
+<button class="btn small" disabled="" id="redoPaint" title="Redo">↻ Redo</button>
+</div>
+<div class="row" style="margin-top:4px">
+<label class="switch" style="display:flex;align-items:center;gap:6px;font-size:12px;"><input id="brushCopyAlpha" style="margin:0" type="checkbox"/><span>Copy transparency</span></label>
+</div>
+<p class="muted" style="margin-top:8px">With the Eyedropper, click any preview to pick a colour (and optionally its transparency), then paint on the left preview. Use Select tool to select pixels of the same color value in single-channel mode, then Fill to apply color to selection. Hold Shift to add another colour/value to the current selection. Use right-click to pan when tools are enabled.</p>
+</div>
+<div class="panel" id="layersPanel">
+<h3>Layers</h3>
+<div class="layersList">
+<div class="layer-row" data-layer="brush">
+<button class="btn icon eye" id="layer_vis_brush" title="Show/Hide">👁</button>
+<span class="layer-name">🖌️ Brush</span>
+</div>
+<div class="layer-row" data-layer="bucket">
+<button class="btn icon eye" id="layer_vis_bucket" title="Show/Hide">👁</button>
+<span class="layer-name">🪣 Bucket</span>
+</div>
+<div class="layer-row" data-layer="sliders">
+<button class="btn icon eye" id="layer_vis_sliders" title="Show/Hide">👁</button>
+<span class="layer-name">🎛️ Sliders</span>
+</div>
+<div class="layer-row" data-layer="curves">
+<button class="btn icon eye" id="layer_vis_curves" title="Show/Hide">👁</button>
+<span class="layer-name">📈 Curves (mask)</span>
+</div>
+<div class="layer-row" data-layer="noise">
+<button class="btn icon eye" id="layer_vis_noise" title="Show/Hide">👁</button>
+<span class="layer-name">✨ Noise</span>
+</div>
+</div>
+<p class="muted" style="margin-top:6px">Top overrides bottom. Click 👁 to toggle visibility.</p>
+</div>
+<style id="layersPanelStyle">
         #layersPanel .layersList { display:flex; flex-direction:column; gap:4px; }
         #layersPanel .layer-row { display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px dashed var(--muted); }
         #layersPanel .layer-row:last-child{ border-bottom:none; }
@@ -277,90 +273,80 @@
         #layersPanel .eye { width:30px; min-width:30px; text-align:center; }
         #layersPanel .eye.off { opacity:0.4; }
       </style><div class="panel">
-        <h3>Export</h3>
-        <div class="row">
-          <button class="btn primary" id="saveTGA">Export MERS .tga</button>
-          <button class="btn" id="saveZIP">Export channels (.zip)</button>
-          <span class="muted" id="dimInfo"></span>
-        </div>
-      </div>
-    </div>
-
-    <!-- RIGHT -->
-    <div class="right">
-      <div class="panel">
-        <div class="row" style="justify-content:space-between">
-          <div class="strip">
-            <button class="btn small" data-mode="rgba">RGBA</button>
-            <button class="btn small" data-mode="r">R</button>
-            <button class="btn small" data-mode="g">G</button>
-            <button class="btn small" data-mode="b">B</button>
-            <button class="btn small" data-mode="a">A</button>
-          </div>
-          <div class="row">
-            <label class="switch"><input id="useRefMapTop" type="checkbox"> Use ref map</label>
-            <select id="refMatchTop" class="btn refMatchSel">
-              <option value="color">Match colors</option>
-              <option value="pixel">Match by pixel</option>
-              <option value="upscaled_v2">Upscaled (unreliable)</option>
-              <option value="vanilla_tga">For weird mers uv map</option>
-            </select>
-            <label class="switch"><input id="grayscaleTop" type="checkbox"> Grayscale</label>
-            <button class="btn icon" id="zoomOut">−</button>
-            <span class="chip" id="zoomVal">100%</span>
-            <button class="btn icon" id="zoomIn">＋</button>
-            <button class="btn icon" id="zoomReset" title="Reset view">⤾</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="previewShell">
-        <div class="canvasWrap" id="wrapOut">
-          <div class="canvasHeader"><span class="title">Your MERS preview</span><div class="toolbar"><span class="chip" id="outInfo">—</span></div></div>
-          <canvas id="canvasOut" class="preview" width="384" height="384"></canvas>
-          <canvas id="canvasPaint" class="preview" width="384" height="384" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
-          <canvas id="canvasSelection" class="preview" width="384" height="384" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
-        </div>
-        <div class="canvasWrap" id="wrapRef">
-          <div class="canvasHeader"><span class="title">Reference TGA</span><div class="toolbar"><span class="chip" id="refInfo">—</span></div></div>
-          <canvas id="canvasRef" class="preview" width="384" height="384"></canvas>
-      <!-- Overlay canvas for selection on the reference preview.  This mirrors the selection outline drawn on
+<h3>Export</h3>
+<div class="row">
+<button class="btn primary" id="saveTGA">Export MERS .tga</button>
+<button class="btn" id="saveZIP">Export channels (.zip)</button>
+<span class="muted" id="dimInfo"></span>
+</div>
+</div>
+</div>
+<!-- RIGHT -->
+<div class="right">
+<div class="panel">
+<div class="row" style="justify-content:space-between">
+<div class="strip">
+<button class="btn small" data-mode="rgba">RGBA</button>
+<button class="btn small" data-mode="r">R</button>
+<button class="btn small" data-mode="g">G</button>
+<button class="btn small" data-mode="b">B</button>
+<button class="btn small" data-mode="a">A</button>
+</div>
+<div class="row">
+<label class="switch"><input id="useRefMapTop" type="checkbox"/> Use ref map</label>
+<select class="btn refMatchSel" id="refMatchTop">
+<option value="color">Match colors</option>
+<option value="pixel">Match by pixel</option>
+<option value="upscaled_v2">Upscaled (unreliable)</option>
+<option value="vanilla_tga">For weird mers uv map</option>
+</select>
+<label class="switch"><input id="grayscaleTop" type="checkbox"/> Grayscale</label>
+<button class="btn icon" id="zoomOut">−</button>
+<span class="chip" id="zoomVal">100%</span>
+<button class="btn icon" id="zoomIn">＋</button>
+<button class="btn icon" id="zoomReset" title="Reset view">⤾</button>
+</div>
+</div>
+</div>
+<div class="previewShell">
+<div class="canvasWrap" id="wrapOut">
+<div class="canvasHeader"><span class="title">Your MERS preview</span><div class="toolbar"><span class="chip" id="outInfo">—</span></div></div>
+<canvas class="preview" height="384" id="canvasOut" width="384"></canvas>
+<canvas class="preview" height="384" id="canvasPaint" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;" width="384"></canvas>
+<canvas class="preview" height="384" id="canvasSelection" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;" width="384"></canvas>
+</div>
+<div class="canvasWrap" id="wrapRef">
+<div class="canvasHeader"><span class="title">Reference TGA</span><div class="toolbar"><span class="chip" id="refInfo">—</span></div></div>
+<canvas class="preview" height="384" id="canvasRef" width="384"></canvas>
+<!-- Overlay canvas for selection on the reference preview.  This mirrors the selection outline drawn on
            the output canvas to provide visual feedback when matching colours between source and reference.
            It is positioned absolutely within the wrapper so it can track pan/zoom and the header height. -->
-      <canvas id="canvasSelectionRef" class="preview" width="384" height="384"
-        style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
-        </div>
-      </div>
-
-      <div class="canvasWrap" style="margin-top:12px">
-        <div class="canvasHeader"><span class="title">Original texture</span><div class="toolbar"><span class="chip" id="srcInfo">—</span></div></div>
-        <canvas id="canvasSrc" class="preview" width="384" height="384"></canvas>
-      </div>
-
-      
-      <!-- Layers Panel (Photoshop/GIMP style) -->
-      
+<canvas class="preview" height="384" id="canvasSelectionRef" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;" width="384"></canvas>
+</div><div class="canvasWrap" id="wrapSrc">
+<div class="canvasHeader"><span class="title">Original texture</span><div class="toolbar"><span class="chip" id="srcInfo">—</span></div></div>
+<canvas class="preview" height="384" id="canvasSrc" width="384"></canvas>
+</div>
+</div>
+<!-- Layers Panel (Photoshop/GIMP style) -->
 <div class="panel footerRow">
-        <div class="row">
-          <button class="btn" id="toggleHist">📊 Histogram</button>
-          <span class="muted">Drag to move • hide with ×</span>
-        </div>
-        <span class="muted">Tip: drag on preview to pan • wheel to zoom • right‑click curve points to delete</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- Floating Histogram -->
-  <div class="histogram" id="histWin">
-    <div class="histTop" id="histDrag">
-      <span class="title">Channel histogram (current result)</span>
-      <div class="row">
-        <button class="histBtn" id="histHide">×</button>
-      </div>
-    </div>
-    <canvas id="histCanvas" width="420" height="210"></canvas>
-  </div>
-
+<div class="row">
+<button class="btn" id="toggleHist">📊 Histogram</button>
+<span class="muted">Drag to move • hide with ×</span>
+</div>
+<span class="muted">Tip: drag on preview to pan • wheel to zoom • right‑click curve points to delete</span>
+</div>
+</div>
+</div>
+<!-- Floating Histogram -->
+<div class="histogram" id="histWin">
+<div class="histTop" id="histDrag">
+<span class="title">Channel histogram (current result)</span>
+<div class="row">
+<button class="histBtn" id="histHide">×</button>
+</div>
+</div>
+<canvas height="210" id="histCanvas" width="420"></canvas>
+</div>
 <script>
 /***********************
  * Core Module System   *
@@ -2713,16 +2699,12 @@ window.addEventListener('load', () => {
 });
 
 </script>
-
 <!-- JSZip for ZIP export -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-
-  <!-- Attribution footer -->
-  <div style="text-align:center; color: var(--muted); font-size: 11px; padding: 12px 0;">
-    Made with GPT&nbsp;5 and Claude&nbsp;AI
+<!-- Attribution footer -->
+<div style="text-align:center; color: var(--muted); font-size: 11px; padding: 12px 0;">
+    Made with GPT 5 and Claude AI
   </div>
-
-
 <script>
 // --- Layers: state + UI + patching modules (non-destructive) ---
 (function(){
@@ -2967,7 +2949,6 @@ window.addEventListener('load', () => {
   }); // ready
 })();
 </script>
-
 <!-- === Patch: Right‑canvas color select uses REF pixels and mirrors mask to OUT (REPLACE) === -->
 <script>
 
@@ -3120,13 +3101,6 @@ window.addEventListener('load', () => {
 })();
 
 </script>
-
-
-
-
-
-
-
 <!-- UPSCALED_V1V2_PATCH_START -->
 <script>
 (function() {
@@ -3365,8 +3339,6 @@ if (typeof st.upTol !== 'number') st.upTol = 0;
 })();
 </script>
 <!-- UPSCALED_V1V2_PATCH_END -->
-
-
 <script>
 function parseTGA(view) {
   // --- Header ---
@@ -3495,7 +3467,6 @@ try {
   }
 } catch (e) {}
 </script>
-
 <script>
 function parseTGA(view) {
   // --- Header ---
@@ -3675,7 +3646,6 @@ try {
   }
 } catch (e) {}
 </script>
-
 <!-- === Patch: Right-click pan on preview (works even with tools enabled) === -->
 <script>
 (function(){
@@ -3743,7 +3713,6 @@ try {
   }
 })();
 </script>
-
 <!-- === Disclaimer (requested) === -->
 <style>
   .mc-disclaimer {
@@ -3756,7 +3725,6 @@ try {
     letter-spacing: .3px;
   }
 </style>
-
 <!-- === Project Link === -->
 <style>
   .mc-link {
@@ -3773,18 +3741,136 @@ try {
   .mc-link a:visited { color: #93C5FD; }
   .mc-link a:hover { color: #60A5FA; }
 </style>
-
 <div class="mc-link">
-  <a href="https://github.com/beachale/beachale.github.io" target="_blank" rel="noopener">https://github.com/beachale/beachale.github.io</a>
+<a href="https://github.com/beachale/beachale.github.io" rel="noopener" target="_blank">https://github.com/beachale/beachale.github.io</a>
 </div>
-<div class="mc-disclaimer" role="note" aria-label="Minecraft Disclaimer">
+<div aria-label="Minecraft Disclaimer" class="mc-disclaimer" role="note">
   NOT AN OFFICIAL MINECRAFT TOOL. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT
 </div>
+<script>
+// PANZOOM_PATCH_START
+(function(){
+  function $ (sel) { return document.querySelector(sel); }
 
-</body>
+  function addWheelZoom(el){
+    if (!el) return;
+    el.addEventListener('wheel', function(e){
+      e.preventDefault();
+      const state = MERS.StateManager.getState();
+      const s = Math.sign(e.deltaY);
+      const before = state.zoom;
+      const factor = (s > 0 ? 0.9 : 1.1);
+      state.zoom = Math.max(.25, Math.min(16, state.zoom * factor));
+
+      // Optional: zoom towards cursor (keep point under cursor roughly fixed)
+      try {
+        const rect = el.getBoundingClientRect();
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+
+        // Compute scale used by draw routines
+        const st = state;
+        const w = (st.src && el.id==='canvasSrc') ? st.src.width : (st.ref ? st.ref.width : 0);
+        const h = (st.src && el.id==='canvasSrc') ? st.src.height : (st.ref ? st.ref.height : 0);
+        const viewW = Math.min(st.anim?.w || w, w);
+        const viewH = Math.min(st.anim?.h || h, h);
+        const fit = Math.min(el.width / Math.max(1, viewW), el.height / Math.max(1, viewH));
+        const scBefore = fit * before;
+        const scAfter  = fit * state.zoom;
+
+        // Convert cursor to image space before & after, adjust pan to keep it stable
+        const dxBefore = Math.round((el.width - viewW * scBefore) / 2 + st.panX);
+        const dyBefore = Math.round((el.height - viewH * scBefore) / 2 + st.panY);
+        const ix = (cx - dxBefore) / scBefore;
+        const iy = (cy - dyBefore) / scBefore;
+        const dxAfter = Math.round((el.width - viewW * scAfter) / 2 + st.panX);
+        const dyAfter = Math.round((el.height - viewH * scAfter) / 2 + st.panY);
+        const cxAfter = ix * scAfter + dxAfter;
+        const cyAfter = iy * scAfter + dyAfter;
+        st.panX += (cx - cxAfter);
+        st.panY += (cy - cyAfter);
+      } catch(_){}
+
+      const zLabel = document.getElementById('zoomVal');
+      if (zLabel) zLabel.textContent = Math.round(state.zoom * 100) + '%';
+      MERS.PreviewManager.drawPreview();
+    }, { passive: false });
+  }
+
+  function addLeftDragPan(el){
+    if (!el) return;
+    let dragging = false, lastX = 0, lastY = 0;
+    el.addEventListener('mousedown', function(e){
+      // Only left button, and don't pan if paint tools active
+      if (e.button !== 0) return;
+      const paintState = MERS.StateManager.getPaintState && MERS.StateManager.getPaintState();
+      if (paintState && paintState.enabled) return;
+      dragging = true;
+      lastX = e.clientX; lastY = e.clientY;
+      e.preventDefault();
+    });
+    window.addEventListener('mouseup', ()=> dragging=false);
+    window.addEventListener('mousemove', function(e){
+      if (!dragging) return;
+      const state = MERS.StateManager.getState();
+      state.panX += e.clientX - lastX;
+      state.panY += e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      MERS.PreviewManager.drawPreview();
+    });
+  }
+
+  function addRightDragPan(el){
+    if (!el) return;
+    // mirror existing behavior used for canvasOut/canvasPaint
+    el.addEventListener('contextmenu', e => { e.preventDefault(); }, {passive:false});
+    el.addEventListener('mousedown', function(e){
+      if (e.button !== 2) return;
+      const st = MERS.StateManager.getState();
+      let lastX = e.clientX, lastY = e.clientY;
+      let active = true;
+
+      function move(ev){
+        if (!active) return;
+        const dx = ev.clientX - lastX;
+        const dy = ev.clientY - lastY;
+        lastX = ev.clientX; lastY = ev.clientY;
+        st.panX += dx; st.panY += dy;
+        // suppress any other handlers while panning
+        ev.preventDefault(); ev.stopPropagation();
+        MERS.PreviewManager.drawPreview();
+      }
+      function up(ev){
+        active = false;
+        window.removeEventListener('mousemove', move, true);
+        window.removeEventListener('mouseup', up, true);
+        if (ev){ ev.preventDefault(); ev.stopPropagation(); }
+      }
+
+      window.addEventListener('mousemove', move, true);
+      window.addEventListener('mouseup', up, true);
+    }, true); // capture so we win over other handlers
+  }
+
+  function init(){
+    const ref = document.getElementById('canvasRef');
+    const src = document.getElementById('canvasSrc');
+    [ref, src].forEach(el => {
+      addWheelZoom(el);
+      addLeftDragPan(el);
+      addRightDragPan(el);
+    });
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    init();
+  } else {
+    document.addEventListener('DOMContentLoaded', init);
+  }
+})();
+// PANZOOM_PATCH_END
+</script></body>
 </html>
-
-
 <!-- === Patch: Sync Original texture canvas (src) with pan/zoom & picking === -->
 <script>
 (function(){
@@ -3835,10 +3921,10 @@ try {
         const dx = Math.round((cs.width - viewW * scale) / 2 + state.panX);
         const dy = Math.round((cs.height - viewH * scale) / 2 + state.panY);
 
-        // Render according to current preview mode (RGBA or single channel tint/grayscale)
+        // Render Original (src) as full RGBA (independent of preview mode)
         const tmp = document.createElement('canvas');
         tmp.width = sw; tmp.height = sh;
-        tmp.getContext('2d').putImageData(MERS.ImageProcessor.renderForMode(state.src, state.mode, state.grayscale), 0, 0);
+        tmp.getContext('2d').putImageData(MERS.ImageProcessor.renderForMode(state.src, 'rgba', false), 0, 0);
 
         ctx.setTransform(scale, 0, 0, scale, dx, dy);
         ctx.imageSmoothingEnabled = false;
@@ -3915,14 +4001,6 @@ try {
   });
 })();
 </script>
-
-
-
-
-
-
-
-
 <!-- === GitHub Auto-Reference for MERS (Bedrock samples) === -->
 <style>
   /* Layout */
