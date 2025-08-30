@@ -4644,7 +4644,7 @@ try {
     if (!res.ok) throw new Error('GitHub API failed: ' + res.status);
     const json = await res.json();
     const list = (json.tree || [])
-      .filter(n => n.type === 'blob' && n.path.startsWith(ROOT) && n.path.toLowerCase().endsWith('.tga'))
+      .filter(n => n.type === 'blob' && n.path.startsWith(ROOT) && n.path.toLowerCase().endsWith('_mers.tga'))
       .map(n => ({
           path: n.path,
           base: basename(n.path),
@@ -4661,7 +4661,7 @@ try {
       Index.byBase.set(it.base, arr);
     }
     Index.ready = true;
-    setStatus(`Indexed ${list.length} .tga files.`);
+    setStatus(`Indexed ${list.length} _mers.tga files.`);
   }
 
   async function fetchAndApply(path){
