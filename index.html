@@ -4986,7 +4986,7 @@ if (wrapSrc) {
     gl.uniformMatrix4fv(loc.uProj, false, proj);
     gl.uniformMatrix4fv(loc.uView, false, view);
     gl.uniformMatrix4fv(loc.uModel, false, model);
-    gl.uniform3fv(loc.uCamPos, new Float32Array([0,0,dist]));
+    gl.uniform3fv(loc.uCamPos, new Float32Array([panX, panY, dist]));
 
     // Light from user-controlled elevation (keeps base horizontal aim)
     const elevEl = document.getElementById('gl_light_elev');
