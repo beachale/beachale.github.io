@@ -4896,7 +4896,7 @@ if (wrapSrc) {
       const off = document.createElement('canvas');
       off.width = w; off.height = h;
       const offCtx = off.getContext('2d');
-      offCtx.putImageData(ImageProcessor.renderForMode(state.out, state.mode, state.grayscale), 0, 0);
+      offCtx.putImageData(state.out, 0, 0); // use raw RGBA (no preview masking/tint)
 
       // Crop current frame to its native pixel size
       const viewW = Math.min(frameW, w);
@@ -5083,6 +5083,26 @@ if (wrapSrc) {
   const iv = setInterval(()=>{
     tries++;
     if (hookRecompute() || tries > 10) clearInterval(iv);
+  // Also update WebGL texture after painting actions (brush, bucket, fill selection)
+  let _glHookedApply = false, _glHookedFill = false;
+  function hookPaintUpdates(){
+    const PT = window.MERS?.PaintTool || {};
+    if (!_glHookedApply) {
+      // Brush strokes and bucket fill both call applyPaintOnOut
+      _glHookedApply = safeWrapMethod(PT, 'applyPaintOnOut', setMERSFromState) || _glHookedApply;
+    }
+    if (!_glHookedFill) {
+      // Fill Selection directly writes into the OUT image, so we hook it explicitly
+      _glHookedFill = safeWrapMethod(PT, 'fillSelection', setMERSFromState) || _glHookedFill;
+    }
+    return _glHookedApply && _glHookedFill;
+  }
+  let triesPaint = 0;
+  const ivPaint = setInterval(()=>{
+    triesPaint++;
+    if (hookPaintUpdates() || triesPaint > 15) clearInterval(ivPaint);
+  }, 200);
+
   }, 200);
 
   // Wire to file input so albedo is the true original image
