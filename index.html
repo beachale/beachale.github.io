@@ -276,7 +276,7 @@
 <h3>Export</h3>
 <div class="row">
 <button class="btn primary" id="saveTGA">Export MERS .tga</button>
-<button class="btn" id="saveZIP">Export channels (.zip)</button>
+<button class="btn" id="saveZIP">Export channels (.zip)</button> <button class="btn" id="savePNGRGB">Export MER .png (RGB)</button>
 <span class="muted" id="dimInfo"></span>
 </div>
 </div>
@@ -5185,6 +5185,63 @@ if (wrapSrc) {
 
   // Restore previous floating state
   if (localStorage.getItem('glViewerFloating') === '1') popout();
+})();
+</script>
+
+
+<script>
+(function () {
+  function ready(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+  ready(function(){
+    if (!window.MERS || !MERS.StateManager) return;
+
+    const mask = MERS._maskChannelsForOutput || function(imgd, enabled){
+      const copy = new ImageData(new Uint8ClampedArray(imgd.data), imgd.width, imgd.height);
+      const d = copy.data, e = { r:!!enabled.r, g:!!enabled.g, b:!!enabled.b, a:!!enabled.a };
+      for (let i=0;i<d.length;i+=4){ if(!e.r)d[i]=0; if(!e.g)d[i+1]=0; if(!e.b)d[i+2]=0; if(!e.a)d[i+3]=0; }
+      return copy;
+    };
+
+    MERS.ExportManager = MERS.ExportManager || {};
+    MERS.ExportManager.exportPNGRGB = async function () {
+      try{
+        const S = MERS.StateManager.getState();
+        if (!S || !S.out) return;
+
+        const enabled = S.channelsEnabled || { r:true, g:true, b:true, a:true };
+        const outMasked = mask(S.out, { r:!!enabled.r, g:!!enabled.g, b:!!enabled.b, a:false });
+
+        const W = outMasked.width, H = outMasked.height;
+        const c = document.createElement('canvas');
+        c.width = W; c.height = H;
+        const ctx = c.getContext('2d', { alpha: false });
+        const id = ctx.createImageData(W, H);
+        const src = outMasked.data, dst = id.data;
+
+        for (let i = 0; i < src.length; i += 4) {
+          dst[i]   = src[i];     // R (Metalness)
+          dst[i+1] = src[i+1];   // G (Emissive)
+          dst[i+2] = src[i+2];   // B (Roughness)
+          dst[i+3] = 255;        // force opaque
+        }
+
+        ctx.putImageData(id, 0, 0);
+        const blob = await new Promise(res => c.toBlob(b => res(b), 'image/png'));
+
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        const base = (document.getElementById('texName')?.textContent || 'texture').replace(/\.(png|tga)$/i, '');
+        a.download = base + '_mers_rgb.png';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 0);
+      }catch(e){
+        console.error('exportPNGRGB failed:', e);
+      }
+    };
+
+    const btn = document.querySelector('#savePNGRGB');
+    if (btn) btn.addEventListener('click', MERS.ExportManager.exportPNGRGB);
+  });
 })();
 </script>
 
