@@ -4376,6 +4376,798 @@ try {
 })();
 </script>
 
+
+<script>
+/* ===========================
+   MERS.GLViewer – WebGL2 cube (v3)
+   - Base/albedo = original image file (not the zoomed preview canvas)
+   - PBR MERS map = built from MERS internal state at full-res (no letterbox)
+   - Channels: R=Metalness, G=Emissive, B=Roughness, A=SSS
+   - One directional light angled above
+   - Re-syncs on recompute & file load only
+*/
+(function () {
+  const $ = (s) => document.querySelector(s);
+
+  // --- 1) Inject a panel with a GL canvas into the right column ----------------
+  const rightCol = document.querySelector('.right') || document.body;
+  const panel = document.createElement('div');
+  panel.className = 'panel';
+  panel.innerHTML = `
+    <div class="row" style="justify-content:space-between">
+      <span class="chip">Experimental 3D Viewer (WebGL2)</span>
+      <div class="row" style="gap:8px;">
+        <button id="gl_pop" class="chip" style="cursor:pointer;font-weight:700;text-transform:uppercase;">⤢ Pop‑out</button>
+        <label class="switch"><input id="gl_spin" type="checkbox"> Auto-rotate</label>
+      </div>
+    </div>
+    <div class="canvasWrap" id="wrap3D" style="height: 384px;">
+      <canvas id="glCanvas" class="preview" width="640" height="384"></canvas>
+    </div>
+    <div class="row" style="gap:12px;margin-top:8px;align-items:center;flex-wrap:wrap">
+      <label class="chip">Geometry
+        <select id="gl_geom" style="margin-left:8px; padding:2px 6px;">
+          <option value="cube">Cube</option>
+          <option value="plane">Vertical Plane</option>
+          <option value="xplane">X‑Planes</option>
+        </select>
+        <div class="muted" style="margin-top:6px;max-width:520px">Light settings will affect look of mers values. Future update will match in-game sun</div>
+
+      </label>
+
+      <label class="chip">Light Intensity
+        <input type="range" id="gl_light_intensity" min="0" max="3" step="0.01" value="1.6" style="width:200px;margin-left:8px">
+      </label>
+      <span id="gl_li_val" class="muted">1.60</span>
+      <label class="chip">Light Size
+        <input type="range" id="gl_light_size" min="0" max="0.5" step="0.001" value="0.12" style="width:200px;margin-left:8px">
+      </label>
+      <span id="gl_ls_val" class="muted">0.12</span>
+      <label class="chip">Light Height
+        <input type="range" id="gl_light_elev" min="0" max="89" step="1" value="60" style="width:200px;margin-left:8px">
+      </label>
+      <span id="gl_le_val" class="muted">60°</span>
+      <label class="chip">Side Fill
+        <input type="range" id="gl_side_fill" min="0" max="0.6" step="0.01" value="0.25" style="width:200px;margin-left:8px">
+      </label>
+      <span id="gl_sf_val" class="muted">0.25</span>
+      <label class="chip">Light Azimuth
+        <input type="range" id="gl_light_azim" min="0" max="360" step="1" value="31" style="width:200px;margin-left:8px">
+      </label>
+      <span id="gl_la_val" class="muted">31°</span>
+      <label class="chip">Albedo Lock
+        <input type="checkbox" id="gl_albedo_lock" checked style="margin-left:8px">
+      </label>
+      <label class="chip">Point Light
+        <input type="checkbox" id="gl_light_point" style="margin-left:8px">
+      </label>
+      <label class="chip">Light Distance
+        <input type="range" id="gl_light_dist" min="0.5" max="10" step="0.01" value="2.0" style="width:200px;margin-left:8px">
+      </label>
+      <span id="gl_ld_val" class="muted">2.00</span>
+      <label class="chip">Light Y
+        <input type="range" id="gl_light_y" min="-3" max="3" step="0.01" value="1.50" style="width:200px;margin-left:8px">
+      </label>
+      <span id="gl_ly_val" class="muted">1.50</span>
+    </div>
+  `;
+  // Prefer to place next to the Original texture (wrapSrc)
+const wrapSrc = document.getElementById('wrapSrc') || (function(){ const c=document.getElementById('canvasSrc'); return c? c.parentElement : null; })();
+const dockParent = wrapSrc ? wrapSrc.parentNode : rightCol;
+if (wrapSrc) {
+  wrapSrc.insertAdjacentElement('afterend', panel);
+} else {
+  dockParent.appendChild(panel);
+}
+
+
+  // Restore/persist slider & dropdown values
+  function persistRange(id, key, def){
+    const el = document.getElementById(id);
+    if (!el) return def;
+    const saved = localStorage.getItem(key);
+    if (saved !== null) { el.value = saved; }
+    el.addEventListener('input', ()=> localStorage.setItem(key, el.value));
+    return parseFloat(el.value || def);
+  }
+  function persistSelect(id, key, def){
+    const el = document.getElementById(id);
+    if (!el) return def;
+    const saved = localStorage.getItem(key);
+    if (saved) { el.value = saved; }
+    el.addEventListener('change', ()=> localStorage.setItem(key, el.value));
+    return el.value || def;
+  }
+  function persistCheck(id, key, defBool){
+  const el = document.getElementById(id);
+  if (!el) return defBool;
+  const saved = localStorage.getItem(key);
+  if (saved !== null) { el.checked = (saved === '1'); }
+  else { el.checked = !!defBool; }
+  el.addEventListener('change', ()=> localStorage.setItem(key, el.checked ? '1':'0'));
+  return !!el.checked;
+}
+
+  // Initialize geometry saved value into the dropdown
+  persistSelect('gl_geom', 'glGeom', 'cube');
+  persistCheck('gl_light_point','glLP', false);
+  persistRange('gl_light_dist','glLD','2.0');
+  persistRange('gl_light_y','glLY','1.5');
+  persistCheck('gl_albedo_lock','glAL', true);
+
+  // Initialize sliders with saved values
+  persistRange('gl_light_intensity','glLI','1.6');
+  persistRange('gl_light_size','glLS','0.12');
+  persistRange('gl_light_elev','glLE','60');
+  persistRange('gl_side_fill','glSF','0.25');
+  persistRange('gl_light_azim','glLA','31');
+
+
+  // Insert floating panel styles
+  (function(){
+    const css = `
+      .gl-float{position:fixed; left:24px; top:24px; width:640px; max-width:90vw; z-index:9999; box-shadow:0 12px 40px rgba(0,0,0,.45);}
+      .gl-drag-handle{cursor:move;}
+      .gl-grabbing{cursor:grabbing !important;}
+    `;
+    const st=document.createElement('style'); st.textContent=css; document.head.appendChild(st);
+  })();
+
+  // --- 2) Minimal math helpers -------------------------------------------------
+  function mat4_perspective(out, fovy, aspect, near, far) {
+    const f = 1.0 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    out[0]=f/aspect; out[1]=0; out[2]=0; out[3]=0;
+    out[4]=0; out[5]=f; out[6]=0; out[7]=0;
+    out[8]=0; out[9]=0; out[10]=(far+near)*nf; out[11]=-1;
+    out[12]=0; out[13]=0; out[14]=(2*far*near)*nf; out[15]=0;
+    return out;
+  }
+  function mat4_mul(a,b){
+    const r=new Float32Array(16);
+    for(let i=0;i<4;i++){
+      for(let j=0;j<4;j++){
+        r[i*4+j]=a[i*4+0]*b[0*4+j]+a[i*4+1]*b[1*4+j]+a[i*4+2]*b[2*4+j]+a[i*4+3]*b[3*4+j];
+      }
+    }
+    return r;
+  }
+  function mat4_identity(){
+    const m=new Float32Array(16);
+    m[0]=1;m[5]=1;m[10]=1;m[15]=1;
+    return m;
+  }
+  function mat4_translate(m, v){
+    const t=mat4_identity();
+    t[12]=v[0]; t[13]=v[1]; t[14]=v[2];
+    return mat4_mul(m,t);
+  }
+  function mat4_rotateY(m, a){
+    const c=Math.cos(a), s=Math.sin(a);
+    const r=new Float32Array(16);
+    r.set([c,0,-s,0,  0,1,0,0,  s,0,c,0,  0,0,0,1]);
+    return mat4_mul(m,r);
+  }
+  function mat4_rotateX(m, a){
+    const c=Math.cos(a), s=Math.sin(a);
+    const r=new Float32Array(16);
+    r.set([1,0,0,0,  0,c,s,0,  0,-s,c,0,  0,0,0,1]);
+    return mat4_mul(m,r);
+  }
+  function vec3_norm(v){
+    const l=Math.hypot(v[0],v[1],v[2]); return l? [v[0]/l,v[1]/l,v[2]/l]:[0,0,0];
+  }
+
+  // --- 3) WebGL2 setup ---------------------------------------------------------
+  const canvas = document.getElementById('glCanvas');
+  const gl = canvas.getContext('webgl2', { antialias: true, alpha: false });
+  if (!gl) {
+    const wrap = document.getElementById('wrap3D');
+    wrap.innerHTML = '<div style="padding:12px" class="muted">WebGL2 not available.</div>';
+    return;
+  }
+
+  // Shaders (PBR-ish single light; NO tint overlay)
+  const VERT = `#version 300 es
+  precision highp float;
+  layout(location=0) in vec3 aPos;
+  layout(location=1) in vec3 aNrm;
+  layout(location=2) in vec2 aUV;
+  uniform mat4 uProj, uView, uModel;
+  out vec3 vN;
+  out vec3 vWPos;
+  out vec2 vUV;
+  void main(){
+    vec4 wpos = uModel * vec4(aPos,1.0);
+    vWPos = wpos.xyz;
+    vN = mat3(uModel) * aNrm;
+    vUV = aUV;
+    gl_Position = uProj * uView * wpos;
+  }`;
+
+  const FRAG = `#version 300 es
+  precision highp float;
+  in vec3 vN;
+  in vec3 vWPos;
+  in vec2 vUV;
+  out vec4 frag;
+
+  uniform sampler2D uAlbedo; // original texture (sRGB)
+  uniform sampler2D uMERS;   // R=Metalness, G=Emissive, B=Roughness, A=SSS
+  uniform vec3 uCamPos;
+  uniform vec3 uLightDir;    // normalized
+  uniform float uLightIntensity;
+  uniform float uLightSize;
+  uniform float uAmbient;
+  uniform float uSideFill;
+  uniform float uLightKind; // 0=Directional, 1=Point
+  uniform float uLightDistance;
+  uniform float uLightAtten;
+  uniform vec3  uLightPos;
+  uniform float uAlbedoLock;
+
+  // sRGB <-> Linear helpers
+  vec3 toLinear(vec3 c){ return pow(c, vec3(2.2)); }
+  vec3 toSRGB(vec3 c){ return pow(max(c, vec3(0.0)), vec3(1.0/2.2)); }
+
+  // GGX helpers
+  float D_GGX(float NoH, float a){
+    float a2 = a*a;
+    float d = (NoH*NoH)*(a2-1.0)+1.0;
+    return a2 / (3.14159*d*d + 1e-7);
+  }
+  float V_SmithGGXCorrelated(float NoV, float NoL, float a){
+    float a2 = a*a;
+    float gv = NoL*sqrt((NoV-NoV*a2)*NoV + a2);
+    float gl = NoV*sqrt((NoL-NoL*a2)*NoL + a2);
+    return 0.5 / (gv+gl + 1e-7);
+  }
+  vec3 F_Schlick(float VoH, vec3 F0){
+    return F0 + (1.0 - F0)*pow(1.0 - VoH, 5.0);
+  }
+
+  void main(){
+    vec3 N = normalize(vN);
+    vec3 V = normalize(uCamPos - vWPos);
+    vec3 L; float att = 1.0;
+    if (uLightKind > 0.5) {
+      vec3 toL = uLightPos - vWPos;
+      float r = length(toL);
+      L = toL / max(r, 1e-6);
+      att = 1.0 / (1.0 + uLightAtten * r * r);
+    } else {
+      L = normalize(-uLightDir);
+    }
+    vec3 H = normalize(V+L);
+
+    vec4 albedo_srgba = texture(uAlbedo, vUV);
+    if (albedo_srgba.a < 0.01) { discard; }
+    vec3 albedo = toLinear(albedo_srgba.rgb);
+
+    vec4 mers = texture(uMERS, vUV);
+    float metal = clamp(mers.r, 0.0, 1.0);
+    float emissiveStrength = clamp(mers.g, 0.0, 1.0);
+    float rough = clamp(mers.b, 0.04, 1.0);
+    float sss = clamp(mers.a, 0.0, 1.0);
+
+    // PBR core
+    float NoL = clamp(dot(N,L), 0.0, 1.0);
+    float NoV = clamp(dot(N,V), 0.0, 1.0);
+    float NoH = clamp(dot(N,H), 0.0, 1.0);
+    float VoH = clamp(dot(V,H), 0.0, 1.0);
+
+    // Diffuse/spec setup
+    vec3 baseDiffuse = albedo; // unmodified albedo (linear)
+    vec3 diffuseColor = mix(baseDiffuse, baseDiffuse * (1.0 - metal), step(0.5, 1.0 - uAlbedoLock));
+    // Fresnel base reflectance: physical uses albedo for metals; lock mode uses neutral high F0
+    vec3 F0_phys = mix(vec3(0.04), albedo, metal);
+    vec3 F0_lock = mix(vec3(0.04), vec3(0.9), metal);
+    vec3 F0 = mix(F0_phys, F0_lock, uAlbedoLock);
+
+    // Microfacet terms
+    float a = (rough + uLightSize);
+    a = max(0.001, a*a);
+    float D = D_GGX(NoH, a);
+    float Vg = V_SmithGGXCorrelated(NoV, NoL, a);
+    vec3  F = F_Schlick(VoH, F0);
+    vec3  spec = (D * Vg) * F;
+
+    // Simple wrap lighting for "SSS" feel
+    float wrap = mix(0.0, 0.5, sss);
+    float NoL_wrap = clamp((dot(N,L) + wrap) / (1.0 + wrap), 0.0, 1.0);
+
+    vec3 Lo = (uLightIntensity * att) * ( (diffuseColor/3.14159) * NoL_wrap + spec * NoL );
+
+    // Emissive (use albedo color scaled by G)
+    vec3 emissive = albedo * emissiveStrength;
+
+    float side = (abs(N.x)+abs(N.z))*0.5;
+    vec3 fill = diffuseColor * (uAmbient + uSideFill * side);
+    vec3 color = Lo + emissive + fill;
+
+    frag = vec4( toSRGB(color), 1.0 );
+  }`;
+
+  function makeShader(type, src){
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+      console.error(gl.getShaderInfoLog(s));
+      throw new Error('Shader compile error');
+    }
+    return s;
+  }
+  function makeProgram(vs, fs){
+    const p = gl.createProgram();
+    gl.attachShader(p, vs);
+    gl.attachShader(p, fs);
+    gl.linkProgram(p);
+    if(!gl.getProgramParameter(p, gl.LINK_STATUS)){
+      console.error(gl.getProgramInfoLog(p));
+      throw new Error('Program link error');
+    }
+    return p;
+  }
+
+  const prog = makeProgram(makeShader(gl.VERTEX_SHADER, VERT), makeShader(gl.FRAGMENT_SHADER, FRAG));
+  gl.useProgram(prog);
+
+  // Locations
+  const loc = {
+    uProj: gl.getUniformLocation(prog, 'uProj'),
+    uView: gl.getUniformLocation(prog, 'uView'),
+    uModel: gl.getUniformLocation(prog, 'uModel'),
+    uAlbedo: gl.getUniformLocation(prog, 'uAlbedo'),
+    uMERS: gl.getUniformLocation(prog, 'uMERS'),
+    uCamPos: gl.getUniformLocation(prog, 'uCamPos'),
+    uLightDir: gl.getUniformLocation(prog, 'uLightDir'),
+    uLightIntensity: gl.getUniformLocation(prog, 'uLightIntensity'),
+    uLightSize: gl.getUniformLocation(prog, 'uLightSize'),
+    uAmbient: gl.getUniformLocation(prog, 'uAmbient'),
+    uSideFill: gl.getUniformLocation(prog, 'uSideFill'),
+    uLightKind: gl.getUniformLocation(prog, 'uLightKind'),
+    uLightDistance: gl.getUniformLocation(prog, 'uLightDistance'),
+    uLightAtten: gl.getUniformLocation(prog, 'uLightAtten'),
+    uLightPos: gl.getUniformLocation(prog, 'uLightPos'),
+    uAlbedoLock: gl.getUniformLocation(prog, 'uAlbedoLock')
+  };
+
+  
+  // --- 4) Geometry (dynamic) ---------------------------------------------------
+  let indexCount = 0;
+  let vao = null, ebo = null, vboPos = null, vboNrm = null, vboUV = null;
+
+  function initBuffers(){
+    vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    vboPos = gl.createBuffer();
+    vboNrm = gl.createBuffer();
+    vboUV  = gl.createBuffer();
+    ebo    = gl.createBuffer();
+    gl.enableVertexAttribArray(0);
+    gl.enableVertexAttribArray(1);
+    gl.enableVertexAttribArray(2);
+  }
+
+  function setGeometry(mode){
+    // Build geometry arrays
+    let P=[], N=[], UV=[], I=[];
+
+    function pushQuad(px,py,pz, nx,ny,nz, ux,uy,uz, vx,vy,vz){
+      // 0..1 UV quad
+      const base = P.length/3;
+      P.push(px,py,pz,  px+ux,py+uy,pz+uz,  px+ux+vx,py+uy+vy,pz+uz+vz,  px+vx,py+vy,pz+vz);
+      for(let i=0;i<4;i++){ N.push(nx,ny,nz); }
+      UV.push(0,1, 1,1, 1,0, 0,0);
+      I.push(base+0, base+1, base+2, base+0, base+2, base+3);
+    }
+
+    if (mode === 'cube'){
+      // unit cube centered at origin (size 2)
+      pushQuad(-1,-1, 1,  0,0,1,   2,0,0,  0,2,0);   // front
+      pushQuad( 1,-1,-1, 0,0,-1,  -2,0,0,  0,2,0);  // back
+      pushQuad(-1,-1,-1,-1,0,0,   0,0,2,  0,2,0);   // left
+      pushQuad( 1,-1, 1,  1,0,0,   0,0,-2, 0,2,0);  // right
+      pushQuad(-1, 1, 1,  0,1,0,   2,0,0,  0,0,-2); // top
+      pushQuad(-1,-1,-1, 0,-1,0,   2,0,0,  0,0, 2); // bottom
+    } else if (mode === 'plane'){
+      // Single vertical plane facing +Z, size 2x2 centered at origin
+      pushQuad(-1,-1,0, 0,0,1, 2,0,0, 0,2,0);
+      // duplicate back face with flipped normal so both sides shade
+      const base = P.length/3;
+      P.push(-1,-1,0,  1,-1,0,  1, 1,0,  -1, 1,0);
+      for(let i=0;i<4;i++){ N.push(0,0,-1); }
+      UV.push(0,1,1,1,1,0,0,0);
+      I.push(base+0, base+1, base+2, base+0, base+2, base+3);
+    } else { // 'xplane'
+      // Two crossing vertical planes (X), both double-sided
+      const addPlane = (angle)=>{
+        const c=Math.cos(angle), s=Math.sin(angle);
+        // plane along rotated X axis
+        const p00=[-1*c,-1, 1*s], p10=[1*c,-1,-1*s], p11=[1*c,1,-1*s], p01=[-1*c,1,1*s];
+        const base = P.length/3;
+        P.push(...p00, ...p10, ...p11, ...p01);
+        for(let i=0;i<4;i++){ N.push(0,0,1); }
+        UV.push(0,1,1,1,1,0,0,0);
+        I.push(base+0,base+1,base+2, base+0,base+2,base+3);
+        // back side
+        const base2 = P.length/3;
+        P.push(...p00, ...p01, ...p11, ...p10);
+        for(let i=0;i<4;i++){ N.push(0,0,-1); }
+        UV.push(0,1,0,0,1,0,1,1);
+        I.push(base2+0,base2+1,base2+2, base2+0,base2+2,base2+3);
+      };
+      addPlane(0);
+      addPlane(Math.PI/2);
+    }
+
+    const positions = new Float32Array(P);
+    const normals   = new Float32Array(N);
+    const uvs       = new Float32Array(UV);
+    const idx       = new Uint16Array(I);
+
+    gl.bindVertexArray(vao);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, vboPos);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, vboNrm);
+    gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, vboUV);
+    gl.bufferData(gl.ARRAY_BUFFER, uvs, gl.STATIC_DRAW);
+    gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+
+    indexCount = idx.length;
+  }
+
+  initBuffers();
+  // Set initial geometry from dropdown and react to changes
+  (function(){
+    const sel = document.getElementById('gl_geom');
+    if (sel){
+      setGeometry(sel.value || 'cube');
+      // If no saved preference, default to point light for planes
+      const lpSaved = localStorage.getItem('glLP');
+      if (lpSaved === null){
+        const mode = sel.value || 'cube';
+        const chk = document.getElementById('gl_light_point');
+        const distEl = document.getElementById('gl_light_dist');
+        if (chk){ chk.checked = (mode !== 'cube'); localStorage.setItem('glLP', chk.checked ? '1':'0'); }
+        if (distEl && mode !== 'cube'){ distEl.value = '2.0'; localStorage.setItem('glLD', distEl.value); }
+      }
+      sel.addEventListener('change', (e)=> setGeometry(e.target.value));
+    } else {
+      setGeometry('cube');
+    }
+  })();
+// --- 5) Textures: lock albedo to original file; build MERS from state -------
+  function makeTex() {
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return t;
+  }
+  const texAlbedo = makeTex();
+  const texMERS   = makeTex();
+
+  // Force nearest-neighbor for albedo (pixel-art style)
+  gl.bindTexture(gl.TEXTURE_2D, texAlbedo);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+  // Force nearest-neighbor for MERS as well
+  gl.bindTexture(gl.TEXTURE_2D, texMERS);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+  async function setAlbedoFromFile(file){
+    try{
+      const bitmap = await createImageBitmap(file);
+      gl.bindTexture(gl.TEXTURE_2D, texAlbedo);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
+    }catch(e){ console.warn('Albedo load failed', e); }
+  }
+
+  async function setMERSFromState(){
+    try{
+      const StateManager = window.MERS && window.MERS.StateManager;
+      const ImageProcessor = window.MERS && window.MERS.ImageProcessor;
+      if (!StateManager || !ImageProcessor) return;
+      const state = StateManager.getState();
+      if (!state || !state.out) return;
+      const w = state.out.width, h = state.out.height;
+      const frameW = state.anim && state.anim.w ? state.anim.w : w;
+      const frameH = state.anim && state.anim.h ? state.anim.h : h;
+      const frames = Math.max(1, Math.floor(h / frameH));
+      const frameIndex = state.anim && state.anim.on ? (state.anim.i|0) : Math.min(state.anim ? (state.anim.i|0) : 0, frames-1);
+      const frameY = frameIndex * frameH;
+
+      // Build full-res offscreen (no letterboxing)
+      const off = document.createElement('canvas');
+      off.width = w; off.height = h;
+      const offCtx = off.getContext('2d');
+      offCtx.putImageData(ImageProcessor.renderForMode(state.out, state.mode, state.grayscale), 0, 0);
+
+      // Crop current frame to its native pixel size
+      const viewW = Math.min(frameW, w);
+      const viewH = Math.min(frameH, Math.max(0, h - frameY));
+      const mersTex = document.createElement('canvas');
+      mersTex.width = viewW; mersTex.height = viewH;
+      const mt = mersTex.getContext('2d');
+      mt.imageSmoothingEnabled = false;
+      mt.drawImage(off, 0, frameY, viewW, viewH, 0, 0, viewW, viewH);
+
+      gl.bindTexture(gl.TEXTURE_2D, texMERS);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, mersTex);
+    }catch(e){ console.warn('MERS upload failed', e); }
+  }
+
+  // Fallback init (1x1)
+  gl.bindTexture(gl.TEXTURE_2D, texAlbedo);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1,1,0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([200,200,200,255]));
+  gl.bindTexture(gl.TEXTURE_2D, texMERS);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1,1,0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,200,0]));
+
+  // --- 6) Camera / controls ----------------------------------------------------
+  let yaw = 0.6, pitch = 0.3, dist = 3.0;
+  let panX = 0.0, panY = 0.0;
+  let draggingRotate = false, draggingPan = false, lx=0, ly=0;
+  const autoSpinInput = document.getElementById('gl_spin');
+  const fov = Math.PI/4; // must match perspective fov
+  canvas.addEventListener('contextmenu', (e)=> e.preventDefault());
+
+  canvas.addEventListener('mousedown', (e)=>{
+    if (e.button === 0) draggingRotate = true;
+    else if (e.button === 2) draggingPan = true;
+    lx=e.clientX; ly=e.clientY;
+  });
+  window.addEventListener('mouseup', ()=>{ draggingRotate=false; draggingPan=false; });
+  window.addEventListener('mousemove', (e)=>{
+    const dx=e.clientX-lx, dy=e.clientY-ly;
+    lx=e.clientX; ly=e.clientY;
+    if (draggingRotate){
+      yaw   += dx * 0.005;
+      pitch += dy * 0.005;
+      pitch = Math.max(-1.3, Math.min(1.3, pitch));
+    } else if (draggingPan){
+      // Screen-space pan scaled by distance & FOV
+      const scale = (2 * Math.tan(fov/2) * dist) / Math.max(1, canvas.height);
+      panX -= dx * scale;
+      panY += dy * scale;
+    }
+  });
+  canvas.addEventListener('wheel', (e)=>{
+    dist *= (1 + Math.sign(e.deltaY)*0.08);
+    dist = Math.max(1.0, Math.min(12.0, dist));
+  }, {passive:true});
+
+  function resize(){
+    const rect = canvas.getBoundingClientRect();
+    const dpr  = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.max(320, Math.floor(rect.width * dpr));
+    const h = Math.max(240, Math.floor(rect.height * dpr));
+    if (canvas.width !== w || canvas.height !== h){
+      canvas.width = w; canvas.height = h;
+    }
+    gl.viewport(0,0,canvas.width, canvas.height);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+// --- 7) Render loop ----------------------------------------------------------
+  gl.clearColor(0.08,0.08,0.1,1);
+
+  function frame(t){
+    if (autoSpinInput && autoSpinInput.checked) yaw += 0.0035;
+    resize();
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const proj = mat4_perspective(new Float32Array(16), Math.PI/4, canvas.width/canvas.height, 0.01, 100);
+    let view = mat4_identity();
+    // Apply pan in view space (right-click drag)
+    view = mat4_translate(view, [-panX, -panY, -dist]);
+    let model = mat4_identity();
+    model = mat4_rotateY(model, yaw);
+    model = mat4_rotateX(model, pitch);
+
+    gl.useProgram(prog);
+    gl.uniformMatrix4fv(loc.uProj, false, proj);
+    gl.uniformMatrix4fv(loc.uView, false, view);
+    gl.uniformMatrix4fv(loc.uModel, false, model);
+    gl.uniform3fv(loc.uCamPos, new Float32Array([0,0,dist]));
+
+    // Light from user-controlled elevation (keeps base horizontal aim)
+    const elevEl = document.getElementById('gl_light_elev');
+    const azEl = document.getElementById('gl_light_azim');
+    const elev = elevEl ? (parseFloat(elevEl.value) * Math.PI/180) : (Math.PI/3);
+    const az = azEl ? (parseFloat(azEl.value) * Math.PI/180) : (Math.atan2(0.3,0.5));
+    // base horizontal unit vector rotated by azimuth (for directional default)
+    const bx = 0.5, bz = 0.3; // default facing
+    const bh = Math.hypot(bx, bz) || 1.0;
+    const ux = bx/bh, uz = bz/bh;
+    const rx = Math.cos(az)*ux - Math.sin(az)*uz;
+    const rz = Math.sin(az)*ux + Math.cos(az)*uz;
+    const hx = rx * Math.cos(elev);
+    const hz = rz * Math.cos(elev);
+    const lyDir = Math.sin(elev);
+    const lightDir = vec3_norm([hx, lyDir, hz]);
+    const lev = document.getElementById('gl_le_val'); if (lev) lev.textContent = Math.round(elev*180/Math.PI) + '°';
+    const lav = document.getElementById('gl_la_val'); if (lav) lav.textContent = Math.round(az*180/Math.PI) + '°';
+    const sfEl = document.getElementById('gl_side_fill');
+    const sf = sfEl ? parseFloat(sfEl.value) : 0.25;
+    gl.uniform1f(loc.uAmbient, 0.06);
+    gl.uniform1f(loc.uSideFill, sf);
+    const sfv = document.getElementById('gl_sf_val'); if (sfv) sfv.textContent = sf.toFixed(2);
+    const lpEl = document.getElementById('gl_light_point');
+    const ldEl = document.getElementById('gl_light_dist');
+    const lyEl = document.getElementById('gl_light_y');
+    const lp = lpEl ? !!lpEl.checked : false;
+    const ld = ldEl ? parseFloat(ldEl.value) : 2.0;
+    const ly = lyEl ? parseFloat(lyEl.value) : 1.5;
+    gl.uniform1f(loc.uLightKind, lp ? 1.0 : 0.0);
+    gl.uniform1f(loc.uLightDistance, ld);
+    gl.uniform1f(loc.uLightAtten, 0.2);
+    const ldv = document.getElementById('gl_ld_val'); if (ldv) ldv.textContent = ld.toFixed(2);
+    const alEl = document.getElementById('gl_albedo_lock');
+    gl.uniform1f(loc.uAlbedoLock, (alEl && alEl.checked) ? 1.0 : 0.0);
+    const lyv = document.getElementById('gl_ly_val'); if (lyv) lyv.textContent = ly.toFixed(2);
+    if (lp) {
+      // Point light: position from azimuth, elevation, distance + optional Y offset
+      const radial = Math.max(0.0, ld) * Math.cos(elev);
+      const px = Math.cos(az) * radial;
+      const py = Math.max(-100.0, Math.min(100.0, Math.sin(elev) * Math.max(0.0, ld) + ly));
+      const pz = Math.sin(az) * radial;
+      const Lpos = new Float32Array([px, py, pz]);
+      gl.uniform3fv(loc.uLightPos, Lpos);
+    } else {
+      // Directional: use lightDir
+      gl.uniform3fv(loc.uLightDir, new Float32Array(lightDir));
+      gl.uniform3fv(loc.uLightPos, new Float32Array([0,0,0]));
+    }
+    const liEl = document.getElementById('gl_light_intensity');
+    const lsEl = document.getElementById('gl_light_size');
+    const li = liEl ? parseFloat(liEl.value) : 1.6;
+    const ls = lsEl ? parseFloat(lsEl.value) : 0.12;
+    gl.uniform1f(loc.uLightIntensity, li);
+    gl.uniform1f(loc.uLightSize, ls);
+    const liv = document.getElementById('gl_li_val'); if (liv) liv.textContent = li.toFixed(2);
+    const lsv = document.getElementById('gl_ls_val'); if (lsv) lsv.textContent = ls.toFixed(2);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texAlbedo);
+    gl.uniform1i(loc.uAlbedo, 0);
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, texMERS);
+    gl.uniform1i(loc.uMERS, 1);
+
+    gl.bindVertexArray(vao);
+    gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // --- 8) Sync: recompute only + file load (avoid reacting to preview zoom) ----
+  function safeWrapMethod(obj, name, after){
+    if (!obj || !obj[name] || obj[name]._glWrapped) return false;
+    const orig = obj[name];
+    obj[name] = function(){
+      const r = orig.apply(this, arguments);
+      try { after(); } catch(e){}
+      return r;
+    };
+    obj[name]._glWrapped = true;
+    return true;
+  }
+
+  function hookRecompute(){
+    const did = safeWrapMethod(window.MERS?.Core || {}, 'recompute', setMERSFromState);
+    if (did) setMERSFromState(); // initial
+    return did;
+  }
+
+  let tries = 0;
+  const iv = setInterval(()=>{
+    tries++;
+    if (hookRecompute() || tries > 10) clearInterval(iv);
+  }, 200);
+
+  // Wire to file input so albedo is the true original image
+  const fileTex = document.getElementById('fileTex');
+  if (fileTex){
+    const loadFile = ()=>{
+      const f = fileTex.files && fileTex.files[0];
+      if (f) setAlbedoFromFile(f);
+    };
+    fileTex.addEventListener('change', loadFile);
+    if (fileTex.files && fileTex.files[0]) loadFile(); // in case already chosen
+  }
+
+  // --- 9) Pop-out / Dock + Drag ------------------------------------------------
+  const headerRow = panel.querySelector('.row'); // first header row
+  headerRow.classList.add('gl-drag-handle');
+  const popBtn = document.getElementById('gl_pop');
+
+  // Keep a docking anchor so we can restore position in the right column
+  // dockParent is defined above based on wrapSrc / right column
+  const dockAnchor = document.createComment('GLVIEWER_ANCHOR');
+  if (wrapSrc) { dockParent.insertBefore(dockAnchor, wrapSrc.nextSibling); }
+  else { dockParent.insertBefore(dockAnchor, panel.nextSibling); }
+
+  function dock(){
+    panel.classList.remove('gl-float');
+    panel.style.left = panel.style.top = panel.style.right = panel.style.bottom = '';
+    panel.style.width = '';
+    if (popBtn) popBtn.textContent = 'Pop‑out';
+    dockParent.insertBefore(panel, dockAnchor.nextSibling);
+    localStorage.setItem('glViewerFloating','0');
+  }
+  function popout(){
+    if (!panel.classList.contains('gl-float')){
+      document.body.appendChild(panel);
+      panel.classList.add('gl-float');
+      // Restore saved position or default
+      const saved = JSON.parse(localStorage.getItem('glViewerPos')||'{}');
+      panel.style.left = (saved.left ?? 24) + 'px';
+      panel.style.top  = (saved.top  ?? 24) + 'px';
+      panel.style.width = (saved.width ?? 640) + 'px';
+      if (popBtn) popBtn.textContent = 'Dock';
+      localStorage.setItem('glViewerFloating','1');
+    }
+  }
+  if (popBtn) popBtn.addEventListener('click', ()=>{
+    if (panel.classList.contains('gl-float')) dock(); else popout();
+  });
+
+  // Dragging
+  let dragging=false, ox=0, oy=0, startLeft=0, startTop=0;
+  headerRow.addEventListener('mousedown', (e)=>{
+    if (!panel.classList.contains('gl-float')) return;
+    if ((e.target.tagName === 'INPUT') || (e.target.tagName === 'BUTTON') || e.target.type === 'range') return;
+    dragging=true;
+    panel.classList.add('gl-grabbing');
+    const rect = panel.getBoundingClientRect();
+    startLeft = rect.left; startTop = rect.top;
+    ox = e.clientX; oy = e.clientY;
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e)=>{
+    if (!dragging) return;
+    const nx = startLeft + (e.clientX - ox);
+    const ny = startTop + (e.clientY - oy);
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const rect = panel.getBoundingClientRect();
+    const clampedX = Math.max(8, Math.min(vw - rect.width - 8, nx));
+    const clampedY = Math.max(8, Math.min(vh - 48, ny));
+    panel.style.left = clampedX + 'px';
+    panel.style.top  = clampedY + 'px';
+  });
+  window.addEventListener('mouseup', ()=>{
+    if (!dragging) return;
+    dragging=false;
+    panel.classList.remove('gl-grabbing');
+    const r = panel.getBoundingClientRect();
+    localStorage.setItem('glViewerPos', JSON.stringify({left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width)}));
+  });
+
+  // Restore previous floating state
+  if (localStorage.getItem('glViewerFloating') === '1') popout();
+})();
+</script>
+
 </body>
 </html>
 <!-- === Patch: Sync Original texture canvas (src) with pan/zoom & picking === -->
