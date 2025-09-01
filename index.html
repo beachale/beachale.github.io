@@ -4405,12 +4405,34 @@ try {
       <canvas id="glCanvas" class="preview" width="640" height="384"></canvas>
     </div>
     <div class="row" style="gap:12px;margin-top:8px;align-items:center;flex-wrap:wrap">
+      <label class="chip">Model
+        <select id="gl_model" style="margin-left:8px; padding:2px 6px;">
+          <option value="none">Built-in</option>
+          <option value="obj">.obj</option>
+          <option value="bbmodel">.bbmodel</option>
+          <option value="geojson">Bedrock .geo.json</option>
+        </select>
+        <button class="btn small" id="btnLoadOBJ" style="margin-left:8px">Load OBJ…</button>
+        <button class="btn small" id="btnLoadBB">Load .bbmodel…</button>
+        <button class="btn small" id="btnLoadGEO">Load .geo.json…</button>
+        <input id="fileOBJ" type="file" accept=".obj,.mtl,.png,.jpg,.jpeg,.tga" multiple hidden>
+        <input id="fileBB"  type="file" accept=".bbmodel,application/json" hidden>
+        <input id="fileGEO" type="file" accept=".geo.json,application/json,.png,.jpg,.jpeg" multiple hidden>
+        <div class="muted" id="gl_model_hint" style="margin-top:6px;max-width:520px">Tip: Select a .obj (you can optionally include a diffuse image).</div>
+        <input id="gh_q" type="search" placeholder="Search GitHub models…" style="margin-left:8px; width:220px;">
+        <button class="btn small" id="gh_go" title="Search Mojang/bedrock-samples">Search GitHub</button>
+        <select id="gh_results" size="6" style="display:none; min-width:420px; max-width:520px; margin-top:6px;"></select>
+        <button class="btn small" id="gh_load" style="display:none; margin-left:8px;">Load selected</button>
+
+      </label>
+
       <label class="chip">Geometry
         <select id="gl_geom" style="margin-left:8px; padding:2px 6px;">
           <option value="cube">Cube</option>
           <option value="plane">Vertical Plane</option>
           <option value="xplane">X‑Planes</option>
         </select>
+        <div class="muted" style="margin-top:6px;max-width:520px;color:#ef4444;font-weight:600">.obj models recommended for now</div>
         <div class="muted" style="margin-top:6px;max-width:520px">Light settings will affect look of mers values. Future update will match in-game sun</div>
 
       </label>
@@ -4827,6 +4849,19 @@ if (wrapSrc) {
   }
 
   initBuffers();
+
+  /* ensure default cube */
+  if (!localStorage.getItem('glGeom')) { localStorage.setItem('glGeom','cube'); }
+  if (typeof setGeometry === 'function') {
+    try{
+      const gCur = localStorage.getItem('glGeom') || 'cube';
+      if (!gCur || (gCur!=='cube' && gCur!=='plane' && gCur!=='xplane')){
+        setGeometry('cube');
+      } else {
+        setGeometry(gCur);
+      }
+    }catch(_){ setGeometry('cube'); }
+  }
   // Set initial geometry from dropdown and react to changes
   (function(){
     const sel = document.getElementById('gl_geom');
@@ -5185,6 +5220,445 @@ if (wrapSrc) {
 
   // Restore previous floating state
   if (localStorage.getItem('glViewerFloating') === '1') popout();
+
+  /* === Simple mesh loaders (no deps) === */
+  (function(){
+    function setCustomGeometryArrays(pos, nrm, uv, idx){
+      gl.bindVertexArray(vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, vboPos);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.STATIC_DRAW);
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, vboNrm);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(nrm), gl.STATIC_DRAW);
+      gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, vboUV);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uv), gl.STATIC_DRAW);
+      gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
+      const use32 = Math.max(...idx) > 65535;
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, use32 ? new Uint32Array(idx) : new Uint16Array(idx), gl.STATIC_DRAW);
+      indexCount = idx.length;
+    }
+    async function blobToImageBitmap(file){
+      if (/\.(tga)$/i.test(file.name)){
+        const ab = await file.arrayBuffer();
+        const id = (window.MERS && MERS.ImageProcessor && MERS.ImageProcessor.parseTGA)
+          ? MERS.ImageProcessor.parseTGA(new DataView(ab)) : null;
+        if (!id) throw new Error('TGA parser not available');
+        const c = document.createElement('canvas');
+        c.width = id.width; c.height = id.height;
+        c.getContext('2d').putImageData(id, 0, 0);
+        return await createImageBitmap(c);
+      }
+      return await createImageBitmap(file);
+    }
+    function computeFlatNormals(positions, indices){
+      const nrm = new Float32Array(positions.length);
+      for (let i=0;i<indices.length;i+=3){
+        const a=indices[i]*3, b=indices[i+1]*3, c=indices[i+2]*3;
+        const ax=positions[a], ay=positions[a+1], az=positions[a+2];
+        const bx=positions[b], by=positions[b+1], bz=positions[b+2];
+        const cx=positions[c], cy=positions[c+1], cz=positions[c+2];
+        const ux=bx-ax, uy=by-ay, uz=bz-az;
+        const vx=cx-ax, vy=cy-ay, vz=cz-az;
+        let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+        const len=Math.hypot(nx,ny,nz)||1; nx/=len; ny/=len; nz/=len;
+        nrm[a]+=nx; nrm[a+1]+=ny; nrm[a+2]+=nz;
+        nrm[b]+=nx; nrm[b+1]+=ny; nrm[b+2]+=nz;
+        nrm[c]+=nx; nrm[c+1]+=ny; nrm[c+2]+=nz;
+      }
+      for (let i=0;i<nrm.length;i+=3){
+        const l=Math.hypot(nrm[i],nrm[i+1],nrm[i+2])||1;
+        nrm[i]/=l; nrm[i+1]/=l; nrm[i+2]/=l;
+      }
+      return Array.from(nrm);
+    }
+
+    // OBJ/MTL
+    function parseMTL(text){
+      const mats=new Map(); let cur=null;
+      for (const raw of text.split(/\r?\n/)){
+        const line=raw.trim(); if (!line||line.startsWith('#')) continue;
+        const [key,...rest]=line.split(/\s+/); const v=rest.join(' ');
+        if (key==='newmtl'){ cur={name:v,map_Kd:null}; mats.set(v,cur); }
+        else if (key==='map_Kd'&&cur){ cur.map_Kd=v.trim().split(/\s+/).pop(); }
+      }
+      return mats;
+    }
+    function parseOBJ(text){
+      const V=[],VT=[],VN=[], outP=[],outUV=[],outN=[],outI=[], indexMap=new Map(); let nextIndex=0;
+      let currentMTL=null; const usedMaterials=new Set();
+      function addVertex(vi,vti,vni){
+        const key=`${vi}/${vti}/${vni}`;
+        if (indexMap.has(key)) return indexMap.get(key);
+        outP.push(V[vi*3],V[vi*3+1],V[vi*3+2]);
+        if (vti>=0) outUV.push(VT[vti*2], 1-VT[vti*2+1]); else outUV.push(0,0);
+        if (vni>=0) outN.push(VN[vni*3],VN[vni*3+1],VN[vni*3+2]); else outN.push(0,0,0);
+        indexMap.set(key,nextIndex); return nextIndex++;
+      }
+      for (const raw of text.split(/\r?\n/)){
+        const line=raw.trim(); if (!line||line.startsWith('#')) continue;
+        const p=line.split(/\s+/); const cmd=p[0];
+        if (cmd==='v')  { V.push(parseFloat(p[1]),parseFloat(p[2]),parseFloat(p[3])); }
+        if (cmd==='vt') { VT.push(parseFloat(p[1]),parseFloat(p[2])); }
+        if (cmd==='vn') { VN.push(parseFloat(p[1]),parseFloat(p[2]),parseFloat(p[3])); }
+        if (cmd==='usemtl'){ currentMTL=p.slice(1).join(' '); }
+        if (cmd==='f'){
+          const verts=p.slice(1).map(tok=>{ const [vi,vti,vni]=tok.split('/').map(s=>s?parseInt(s,10)-1:-1); return addVertex(vi,vti,vni); });
+          for (let i=1;i<verts.length-1;i++){ outI.push(verts[0],verts[i],verts[i+1]); }
+          if (currentMTL) usedMaterials.add(currentMTL);
+        }
+      }
+      const needsNormals=outN.every(v=>v===0);
+      const posArr=new Float32Array(outP); const idxArr=new Uint32Array(outI);
+      const nrm=needsNormals?computeFlatNormals(posArr,idxArr):outN;
+      return {positions:Array.from(posArr), normals:nrm, uvs:outUV, indices:outI, usedMaterials:Array.from(usedMaterials)};
+    }
+    async function loadOBJandFriends(fileList){
+      const files = Array.from(fileList || []);
+      const obj = files.find(f => /\.obj$/i.test(f.name));
+      if (!obj) throw new Error('No .obj in selection');
+      const objText = await obj.text();
+      const parsed = parseOBJ(objText);
+
+      // Try to find any accompanying diffuse image among the selected files
+      const texFile = files.find(f => /\.(png|jpg|jpeg|tga)$/i.test(f.name));
+      if (texFile){
+        try{
+          const bmp = await blobToImageBitmap(texFile);
+          gl.bindTexture(gl.TEXTURE_2D, texAlbedo);
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+        }catch(e){
+          console.warn('Failed to load optional OBJ texture:', e);
+        }
+      }
+
+      setCustomGeometryArrays(parsed.positions, parsed.normals, parsed.uvs, parsed.indices);
+      localStorage.setItem('glModel','obj'); const sel=document.getElementById('gl_model'); if (sel) sel.value='obj';
+    }
+
+    // Blockbench .bbmodel
+    function buildBox(px0,py0,pz0, px1,py1,pz1, faceUVs, push){
+      const sx=1/16, sy=1/16, sz=1/16;
+      const x0=(px0*sx - 0.5)*2, x1=(px1*sx - 0.5)*2;
+      const y0=(py0*sy - 0.5)*2, y1=(py1*sy - 0.5)*2;
+      const z0=(pz0*sz - 0.5)*2, z1=(pz1*sz - 0.5)*2;
+      const faces={
+        north:{n:[0,0,-1],quad:[[x1,y0,z0],[x0,y0,z0],[x0,y1,z0],[x1,y1,z0]]},
+        south:{n:[0,0, 1],quad:[[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1]]},
+        west: {n:[-1,0,0],quad:[[x0,y0,z0],[x0,y0,z1],[x0,y1,z1],[x0,y1,z0]]},
+        east: {n:[ 1,0,0],quad:[[x1,y0,z1],[x1,y0,z0],[x1,y1,z0],[x1,y1,z1]]},
+        up:   {n:[0,1,0],quad:[[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]]},
+        down: {n:[0,-1,0],quad:[[x0,y0,z1],[x1,y0,z1],[x1,y0,z0],[x0,y0,z0]]},
+      };
+      for (const [key,f] of Object.entries(faces)){
+        const fdesc=faceUVs && faceUVs[key]; if (!fdesc) continue;
+        const u = Array.isArray(fdesc) ? fdesc : (Array.isArray(fdesc.uv)? fdesc.uv : null);
+        if (!u) continue;
+        push.face(f.quad, f.n, u);
+      }
+    }
+    function finalizeUVs(rawUVs, atlasW, atlasH){
+      const out=[];
+      for (const arr of rawUVs){
+        if (!arr || arr.length<4) continue;
+        const u1=arr[0],v1=arr[1],u2=arr[2],v2=arr[3];
+        out.push(u1/atlasW, v2/atlasH);
+        out.push(u2/atlasW, v2/atlasH);
+        out.push(u2/atlasW, v1/atlasH);
+        out.push(u1/atlasW, v1/atlasH);
+      }
+      return out;
+    }
+    function triIndicesForQuads(quadCount, base=0){ const idx=[]; for (let q=0;q<quadCount;q++){ const b=base+q*4; idx.push(b,b+1,b+2,b,b+2,b+3);} return idx; }
+    async function loadBBModel(file){
+      const text=await file.text(); const json=JSON.parse(text);
+      let atlasW=16, atlasH=16;
+      let texEntry=null;
+      if (json.textures){
+        if (Array.isArray(json.textures)) texEntry=json.textures.find(t=>t.use_as_default)||json.textures[0];
+        else if (typeof json.textures==='object'){ const vals=Object.values(json.textures); texEntry=vals.find(t=>t.use_as_default)||vals[0]; }
+      }
+      if (texEntry){
+        atlasW=texEntry.uv_width || texEntry.width || atlasW;
+        atlasH=texEntry.uv_height || texEntry.height || atlasH;
+        try{
+          const src=texEntry.source || texEntry.url || texEntry.path;
+          if (src && typeof src==='string' && src.startsWith('data:image/')){
+            const img=new Image();
+            await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=src; });
+            const bmp=await createImageBitmap(img);
+            gl.bindTexture(gl.TEXTURE_2D, texAlbedo);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+            gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,bmp);
+            atlasW=img.naturalWidth||atlasW; atlasH=img.naturalHeight||atlasH;
+          }
+        }catch(e){ console.warn('bbmodel: texture upload skipped:', e); }
+      }
+      const P=[],N=[],rawUVs=[];
+      const push={ face(quad,n,uvArr){ for (const v of quad){ P.push(v[0],v[1],v[2]); N.push(n[0],n[1],n[2]); } rawUVs.push(uvArr); } };
+      const elements=json.elements || json.cubes || [];
+      for (const el of elements){
+        const f=el.from || el.origin || [0,0,0];
+        const t=el.to   || [16,16,16];
+        buildBox(f[0],f[1],f[2], t[0],t[1],t[2], el.faces || {}, push);
+      }
+      const UV=finalizeUVs(rawUVs, atlasW, atlasH);
+      const I=triIndicesForQuads(rawUVs.length, 0);
+      if (P.length===0 || UV.length===0) { throw new Error('.bbmodel had no faces/UVs to render'); }
+      setCustomGeometryArrays(P,N,UV,I);
+      localStorage.setItem('glModel','bbmodel'); const sel=document.getElementById('gl_model'); if (sel) sel.value='bbmodel';
+    }
+
+    // Bedrock .geo.json
+    function buildBedrockBox(origin, size, faces, push){
+      const sx=1/16, sy=1/16, sz=1/16;
+      const x0=(origin[0]*sx - 0.5)*2, x1=((origin[0]+size[0])*sx - 0.5)*2;
+      const y0=(origin[1]*sy - 0.5)*2, y1=((origin[1]+size[1])*sy - 0.5)*2;
+      const z0=(origin[2]*sz - 0.5)*2, z1=((origin[2]+size[2])*sz - 0.5)*2;
+      const facesDesc={
+        north:{n:[0,0,-1],quad:[[x1,y0,z0],[x0,y0,z0],[x0,y1,z0],[x1,y1,z0]]},
+        south:{n:[0,0, 1],quad:[[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1]]},
+        west: {n:[-1,0,0],quad:[[x0,y0,z0],[x0,y0,z1],[x0,y1,z1],[x0,y1,z0]]},
+        east: {n:[ 1,0,0],quad:[[x1,y0,z1],[x1,y0,z0],[x1,y1,z0],[x1,y1,z1]]},
+        up:   {n:[0,1,0],quad:[[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]]},
+        down: {n:[0,-1,0],quad:[[x0,y0,z1],[x1,y0,z1],[x1,y0,z0],[x0,y0,z0]]},
+      };
+      for (const [key,f] of Object.entries(facesDesc)){
+        const face = faces && faces[key]; if (!face) continue;
+        let uvRect=null;
+        if (Array.isArray(face)) { if (face.length>=4) uvRect=[face[0],face[1],face[2],face[3]]; }
+        else if (face && Array.isArray(face.uv) && Array.isArray(face.uv_size)) {
+          const u1=face.uv[0], v1=face.uv[1]; const u2=u1+face.uv_size[0], v2=v1+face.uv_size[1];
+          uvRect=[u1,v1,u2,v2];
+        }
+        if (!uvRect) continue;
+        push.face(f.quad, f.n, uvRect);
+      }
+    }
+    function finalizeBedrockUVs(rawUVs, atlasW, atlasH){
+      const out=[];
+      for (const r of rawUVs){
+        const u1=r[0],v1=r[1],u2=r[2],v2=r[3];
+        out.push(u1/atlasW, v2/atlasH);
+        out.push(u2/atlasW, v2/atlasH);
+        out.push(u2/atlasW, v1/atlasH);
+        out.push(u1/atlasW, v1/atlasH);
+      }
+      return out;
+    }
+    function expandBoxUV(size, uvOrigin){
+      const dx = Math.max(0, Math.round(size[0]));
+      const dy = Math.max(0, Math.round(size[1]));
+      const dz = Math.max(0, Math.round(size[2]));
+      const u = Math.round(uvOrigin[0]);
+      const v = Math.round(uvOrigin[1]);
+      const faces = {};
+      faces.up    = { uv:[u + dz,          v           ], uv_size:[dx, dz] };
+      faces.down  = { uv:[u + dz + dx,     v           ], uv_size:[dx, dz] };
+      faces.west  = { uv:[u,                v + dz     ], uv_size:[dz, dy] };
+      faces.north = { uv:[u + dz,           v + dz     ], uv_size:[dx, dy] };
+      faces.east  = { uv:[u + dz + dx,      v + dz     ], uv_size:[dz, dy] };
+      faces.south = { uv:[u + dz + dx + dz, v + dz     ], uv_size:[dx, dy] };
+      return faces;
+    }
+    async function loadBedrockGeoJSON(fileList){
+      const files=Array.from(fileList||[]);
+      const geo=files.find(f=>/\.geo\.json$/i.test(f.name)) || files.find(f=>/\.json$/i.test(f.name));
+      if (!geo) throw new Error('No .geo.json in selection');
+      const text=await geo.text(); const json=JSON.parse(text);
+      let geom=null; let texW=16, texH=16;
+      if (Array.isArray(json['minecraft:geometry'])){
+        geom=json['minecraft:geometry'][0];
+        if (geom && geom.description){
+          texW=geom.description.texture_width || texW;
+          texH=geom.description.texture_height || texH;
+        }
+      } else {
+        const key=Object.keys(json).find(k=>k.startsWith('geometry.') || k==='geometry');
+        if (key){ geom=json[key]; texW=geom.texturewidth||texW; texH=geom.textureheight||texH; }
+      }
+      if (!geom) throw new Error('Unrecognized .geo.json format');
+      const texFile=files.find(f=>/\.(png|jpg|jpeg)$/i.test(f.name));
+      if (texFile){
+        try{
+          const bmp=await createImageBitmap(texFile);
+          gl.bindTexture(gl.TEXTURE_2D, texAlbedo);
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+          gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,bmp);
+          texW=bmp.width; texH=bmp.height;
+        }catch(e){ console.warn('geo.json: texture upload skipped:', e); }
+      }
+      const bones=geom.bones || []; let cubeCount=0, polyCount=0; const P=[],N=[],rawUVs=[];
+      const push={ face(quad,n,uvRect){ for (const v of quad){ P.push(v[0],v[1],v[2]); N.push(n[0],n[1],n[2]); } rawUVs.push(uvRect); } };
+      for (const b of bones){
+        if (b.poly_mesh){ polyCount++; }
+        const cubes=(b.cubes || b.boxes || []);
+        for (const c of cubes){
+          const origin=c.origin || [0,0,0];
+          const size  =c.size   || [0,0,0];
+          let faces=null;
+          if (c.uv && typeof c.uv==='object' && !Array.isArray(c.uv)){
+            faces={ north:c.uv.north, south:c.uv.south, east:c.uv.east, west:c.uv.west, up:c.uv.up, down:c.uv.down };
+          } else if (Array.isArray(c.uv) && c.uv.length===2){
+            faces = expandBoxUV(size, c.uv);
+          } else if (c.faces){ faces=c.faces; }
+          if (!faces) continue;
+          buildBedrockBox(origin, size, faces, push);
+          cubeCount++;
+        }
+      }
+      if (cubeCount===0){ if (polyCount>0) throw new Error('.geo.json uses poly_mesh (unsupported in this viewer).'); throw new Error('.geo.json contained no cubes to render.'); }
+      if (P.length===0 || rawUVs.length===0){ throw new Error('.geo.json cubes had missing/invalid UVs.'); }
+      const UV=finalizeBedrockUVs(rawUVs, texW, texH);
+      const I=(function(quads){ const idx=[]; for (let q=0;q<quads;q++){ const b=q*4; idx.push(b,b+1,b+2,b,b+2,b+3);} return idx; })(rawUVs.length);
+      setCustomGeometryArrays(P,N,UV,I);
+      localStorage.setItem('glModel','geojson'); const sel=document.getElementById('gl_model'); if (sel) sel.value='geojson';
+    }
+
+    // Wire UI + export loaders
+    function wireModelUI(){
+      const btnOBJ=document.getElementById('btnLoadOBJ');
+      const inpOBJ=document.getElementById('fileOBJ');
+      const btnBB =document.getElementById('btnLoadBB');
+      const inpBB =document.getElementById('fileBB');
+      const selM  =document.getElementById('gl_model');
+      const btnGEO=document.getElementById('btnLoadGEO');
+      const inpGEO=document.getElementById('fileGEO');
+      if (btnOBJ && inpOBJ){
+        btnOBJ.addEventListener('click', ()=> inpOBJ.click());
+        inpOBJ.addEventListener('change', async ()=>{
+          try{ await loadOBJandFriends(inpOBJ.files);
+            const hint=document.getElementById('gl_model_hint'); if (hint) hint.textContent='OBJ loaded.';
+          }catch(e){ console.warn(e); const hint=document.getElementById('gl_model_hint'); if (hint) hint.textContent='Failed to load OBJ: '+e.message; }
+        });
+      }
+      if (btnBB && inpBB){
+        btnBB.addEventListener('click', ()=> inpBB.click());
+        inpBB.addEventListener('change', async ()=>{
+          try{ if (inpBB.files && inpBB.files[0]) await loadBBModel(inpBB.files[0]);
+            const hint=document.getElementById('gl_model_hint'); if (hint) hint.textContent='.bbmodel loaded.';
+          }catch(e){ console.warn(e); const hint=document.getElementById('gl_model_hint'); if (hint) hint.textContent='Failed to load .bbmodel: '+e.message; }
+        });
+      }
+      if (btnGEO && inpGEO){
+        btnGEO.addEventListener('click', ()=> inpGEO.click());
+        inpGEO.addEventListener('change', async ()=>{
+          try{ await loadBedrockGeoJSON(inpGEO.files);
+            const hint=document.getElementById('gl_model_hint'); if (hint) hint.textContent='.geo.json loaded.';
+          }catch(e){ console.warn(e); const hint=document.getElementById('gl_model_hint'); if (hint) hint.textContent='Failed to load .geo.json: '+e.message; }
+        });
+      }
+      if (selM){
+        selM.addEventListener('change', ()=>{
+          const m=selM.value;
+          if (m==='none'){ const gSel=document.getElementById('gl_geom'); if (gSel) gSel.dispatchEvent(new Event('change')); }
+        });
+      }
+    }
+    wireModelUI();
+    window.MERS_GL = window.MERS_GL || {};
+    window.MERS_GL.loadOBJandFriends = loadOBJandFriends;
+    window.MERS_GL.loadBBModel = loadBBModel;
+    window.MERS_GL.loadBedrockGeoJSON = loadBedrockGeoJSON;
+    window.loadBedrockGeoJSON = loadBedrockGeoJSON;
+
+  })();
+
+  /* GH model search */
+  (function(){
+    const GH_OWNER = 'Mojang';
+    const GH_REPO  = 'bedrock-samples';
+    const GH_REF   = 'preview';
+    const GH_ROOT  = 'resource_pack/models';
+
+    async function ghGetBranchSha(owner, repo, ref){
+      const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/branches/${ref}`);
+      if (!r.ok) throw new Error(`GitHub branches: ${r.status}`);
+      const j = await r.json();
+      return j.commit && j.commit.sha;
+    }
+    async function ghListTree(owner, repo, sha){
+      const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${sha}?recursive=1`);
+      if (!r.ok) throw new Error(`GitHub tree: ${r.status}`);
+      return await r.json();
+    }
+    async function ghBuildIndex(){
+      const cacheKey = 'ghModelIndex_v2';
+      try{
+        const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+        if (cached && Array.isArray(cached.items) && (Date.now() - cached.time < 24*60*60*1000)){
+          return cached.items;
+        }
+      }catch(_){}
+      const sha = await ghGetBranchSha(GH_OWNER, GH_REPO, GH_REF);
+      const tree = await ghListTree(GH_OWNER, GH_REPO, sha);
+      const items = (tree.tree || [])
+        .filter(t => t.type === 'blob' && t.path.startsWith(GH_ROOT + '/') && t.path.endsWith('.geo.json'))
+        .map(t => ({ name: t.path.split('/').pop(), path: t.path, url: `https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/${GH_REF}/${t.path}` }));
+      try{ localStorage.setItem(cacheKey, JSON.stringify({time:Date.now(), items})); }catch(_){}
+      return items;
+    }
+    function filterIndex(items, q){
+      if (!q) return items.slice(0, 200);
+      const s = q.trim().toLowerCase();
+      return items.filter(it => it.name.toLowerCase().includes(s) || it.path.toLowerCase().includes(s)).slice(0, 200);
+    }
+    async function ghSearchAndShow(){
+      const q = document.getElementById('gh_q').value;
+      const resBox = document.getElementById('gh_results');
+      const btnLoad = document.getElementById('gh_load');
+      resBox.innerHTML = '';
+      resBox.style.display = 'block';
+      btnLoad.style.display = 'inline-block';
+      try{
+        const idx = await ghBuildIndex();
+        const hits = filterIndex(idx, q);
+        for (const h of hits){
+          const opt = document.createElement('option');
+          opt.value = h.url;
+          opt.textContent = h.path.replace(GH_ROOT + '/', '');
+          resBox.appendChild(opt);
+        }
+        if (!hits.length){
+          const opt = document.createElement('option');
+          opt.textContent = '(no matches)';
+          opt.disabled = true;
+          resBox.appendChild(opt);
+        }
+      }catch(e){
+        const opt = document.createElement('option');
+        opt.textContent = 'GitHub error: ' + e.message;
+        opt.disabled = true;
+        resBox.appendChild(opt);
+      }
+    }
+    async function loadSelectedGH(){
+      const resBox = document.getElementById('gh_results');
+      if (!resBox || !resBox.value) return;
+      const url = resBox.value;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error('Failed to fetch model: ' + resp.statusText);
+      const text = await resp.text();
+      const fn = (window.MERS_GL && window.MERS_GL.loadBedrockGeoJSON) ? window.MERS_GL.loadBedrockGeoJSON : (window.loadBedrockGeoJSON || null);
+      if (!fn) throw new Error('geo loader unavailable');
+      const file = new File([text], 'remote.geo.json', { type:'application/json' });
+      await fn([file]);
+      const hint=document.getElementById('gl_model_hint'); if (hint) hint.textContent='.geo.json loaded from GitHub.';
+    }
+    function wireGH(){
+      const q = document.getElementById('gh_q');
+      const go = document.getElementById('gh_go');
+      const res = document.getElementById('gh_results');
+      const load = document.getElementById('gh_load');
+      if (go) go.addEventListener('click', ghSearchAndShow);
+      if (q) q.addEventListener('keydown', (e)=>{ if (e.key==='Enter') ghSearchAndShow(); });
+      if (res) res.addEventListener('dblclick', loadSelectedGH);
+      if (load) load.addEventListener('click', loadSelectedGH);
+    }
+    wireGH();
+  })();
 })();
 </script>
 
@@ -5242,6 +5716,38 @@ if (wrapSrc) {
     const btn = document.querySelector('#savePNGRGB');
     if (btn) btn.addEventListener('click', MERS.ExportManager.exportPNGRGB);
   });
+})();
+</script>
+
+
+<script>
+// Prevent page scroll when scrolling over the 3D viewer
+(function(){
+  function protectScroll(el){
+    if(!el) return;
+    // Avoid scroll chaining / rubber-banding to the page
+    try {
+      el.style.overscrollBehavior = 'contain';
+      el.style.touchAction = 'none'; // also tames touchpad/gesture scrolling on touch devices
+    } catch(e){}
+
+    // Block default page scroll while still letting our app read the wheel event
+    el.addEventListener('wheel', function(ev){
+      // Let the app consume zoom/pan; just stop the page from scrolling.
+      ev.preventDefault();
+    }, { passive: false });
+  }
+
+  // Run now and also in case the element gets swapped later
+  function init(){
+    const canvas = document.getElementById('glCanvas');
+    protectScroll(canvas);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();
 </script>
 
