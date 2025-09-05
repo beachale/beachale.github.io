@@ -2570,14 +2570,13 @@ MERS.Core = (function() {
 
         function chVal(key, tex01) {
           const sl = state.sliders[key];
+          // Always allow sliders/curves/brightness/contrast to be applied on top of
+          // the per-pixel reference mapping. Previously `state.mappingOn` bypassed
+          // the base/influence sliders which made tools appear inactive.
           let v01;
-          if (state.mappingOn) {
-            v01 = tex01;
-          } else {
-            const base01 = sl.base / 255;
-            const infl01 = sl.infl / 100;
-            v01 = base01 + (tex01 - base01) * infl01;
-          }
+          const base01 = sl.base / 255;
+          const infl01 = sl.infl / 100;
+          v01 = base01 + (tex01 - base01) * infl01;
           v01 = (v01 - 0.5) * (sl.contrast / 100) + 0.5;
           v01 += sl.bright / 255;
           v01 = Math.max(0, Math.min(1, v01));
