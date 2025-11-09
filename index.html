@@ -5751,6 +5751,40 @@ if (wrapSrc) {
 })();
 </script>
 
+
+<script>
+// Global flag for unsaved changes
+window.MERS = window.MERS || {};
+MERS.hasUnsavedChanges = false;
+
+// Hook into main UI interactions
+document.addEventListener("input", markUnsaved, true);
+document.addEventListener("change", markUnsaved, true);
+document.addEventListener("click", function (e) {
+  // Detect brush, bucket, curve, slider, etc. button interactions
+  const id = e.target.id || "";
+  if (id.startsWith("toggle") || id.includes("Brush") || id.includes("Bucket") || id.includes("Curve") || id.includes("slider")) {
+    markUnsaved();
+  }
+}, true);
+
+function markUnsaved() {
+  MERS.hasUnsavedChanges = true;
+}
+
+// Warn user if they try to leave or reload the page with unsaved changes
+window.addEventListener("beforeunload", function (e) {
+  const paintState = window.MERS?.StateManager?.getPaintState?.();
+  const hasUnsavedPaint = paintState && paintState.undoStack && paintState.undoStack.length > 0;
+  const hasUnsaved = MERS.hasUnsavedChanges || hasUnsavedPaint;
+
+  if (hasUnsaved) {
+    e.preventDefault();
+    e.returnValue = ""; // triggers the default browser confirmation dialog
+  }
+});
+</script>
+
 </body>
 </html>
 <!-- === Patch: Sync Original texture canvas (src) with pan/zoom & picking === -->
