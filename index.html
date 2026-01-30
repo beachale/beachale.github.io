@@ -123,15 +123,21 @@
 <div class="row mt">
 <button class="btn" id="pickTex">Choose PNG/TGA</button>
 <input accept=".png,.tga" id="fileTex" type="file"/>
+<button class="btn" id="pickMers">Load and edit MER/MERS</button>
+<input accept=".png,.tga" id="fileMers" type="file"/>
 <span class="chip" id="texName">No texture</span>
 </div>
 <hr style="border:none;border-top:1px solid var(--border);margin:12px 0"/>
 <h3>Reference MERS (optional)</h3>
-<p class="muted">Load a .tga MERS file to preview beside your result or drive per-pixel mapping.</p>
+<p class="muted">Load a .tga/.png MERS file to preview beside your result or drive per-pixel mapping.</p>
 <div class="row mt">
-<button class="btn" id="pickRef">Choose TGA</button>
-<input accept=".tga" id="fileRef" type="file"/>
+<button class="btn" id="pickRef">Choose TGA/PNG</button>
+<input accept=".tga,.png" id="fileRef" type="file"/>
 <span class="chip" id="refName">No reference</span>
+</div>
+<div class="row mt">
+  <button class="btn small" id="applyRefToYour" disabled>Apply reference → Your MERS preview</button>
+  <span class="muted" style="font-size:12px">(bakes the loaded reference into the editor for further edits)</span>
 </div>
 <div class="row mt">
 <label class="switch"><input id="useRefMap" type="checkbox"/> Use reference as per-pixel map</label>
@@ -153,50 +159,22 @@
 </div>
 <div class="grid-2 curvesGrid">
 <div>
-<div class="row" style="justify-content:space-between">
-<span class="chip">Red • Metalness</span>
-<div class="row" style="gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-<button class="btn small" id="curveUndoR">↺ Curve</button>
-<button class="btn small" id="curveRedoR">↻ Curve</button>
-<span class="muted">click to add • drag • right‑click to delete</span>
-</div>
-</div>
+<div class="row" style="justify-content:space-between"><span class="chip">Red • Metalness</span><span class="muted">click to add • drag • right‑click to delete</span></div>
 <div class="group" id="groupR"></div>
 <canvas class="curve" height="160" id="curveR" width="520"></canvas>
 </div>
 <div>
-<div class="row" style="justify-content:space-between">
-<span class="chip">Green • Emissive</span>
-<div class="row" style="gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-<button class="btn small" id="curveUndoG">↺ Curve</button>
-<button class="btn small" id="curveRedoG">↻ Curve</button>
-<span class="muted">click to add • drag • right‑click to delete</span>
-</div>
-</div>
+<div class="row" style="justify-content:space-between"><span class="chip">Green • Emissive</span><span class="muted">click to add • drag • right‑click to delete</span></div>
 <div class="group" id="groupG"></div>
 <canvas class="curve" height="160" id="curveG" width="520"></canvas>
 </div>
 <div>
-<div class="row" style="justify-content:space-between">
-<span class="chip">Blue • Roughness</span>
-<div class="row" style="gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-<button class="btn small" id="curveUndoB">↺ Curve</button>
-<button class="btn small" id="curveRedoB">↻ Curve</button>
-<span class="muted">click to add • drag • right‑click to delete</span>
-</div>
-</div>
+<div class="row" style="justify-content:space-between"><span class="chip">Blue • Roughness</span><span class="muted">click to add • drag • right‑click to delete</span></div>
 <div class="group" id="groupB"></div>
 <canvas class="curve" height="160" id="curveB" width="520"></canvas>
 </div>
 <div>
-<div class="row" style="justify-content:space-between">
-<span class="chip">Alpha • Subsurface</span>
-<div class="row" style="gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-<button class="btn small" id="curveUndoA">↺ Curve</button>
-<button class="btn small" id="curveRedoA">↻ Curve</button>
-<span class="muted">click to add • drag • right‑click to delete</span>
-</div>
-</div>
+<div class="row" style="justify-content:space-between"><span class="chip">Alpha • Subsurface</span><span class="muted">click to add • drag • right‑click to delete</span></div>
 <div class="group" id="groupA"></div>
 <canvas class="curve" height="160" id="curveA" width="520"></canvas>
 </div>
@@ -410,6 +388,9 @@ MERS.StateManager = (function() {
   
   const state = {
     src: null,
+    // When true, the loaded "texture input" is already a MER/MERS texture.
+    // In that case we interpret src RGBA directly as MERS RGBA instead of converting from grayscale.
+    srcIsMERS: false,
     ref: null,
     mappingOn: false,
     refMatch: 'color',
@@ -448,20 +429,6 @@ MERS.StateManager = (function() {
       b: [{ x: 0, y: 160 }, { x: 520, y: 0 }],
       a: [{ x: 0, y: 160 }, { x: 520, y: 0 }],
     },
-    history: {
-      curves: {
-        r: { undo: [], redo: [] },
-        g: { undo: [], redo: [] },
-        b: { undo: [], redo: [] },
-        a: { undo: [], redo: [] }
-      },
-      sliders: {
-        r: { undo: [], redo: [] },
-        g: { undo: [], redo: [] },
-        b: { undo: [], redo: [] },
-        a: { undo: [], redo: [] }
-      }
-    },
     out: null,
     refMapByColor: null,
     refRes: null
@@ -495,12 +462,6 @@ MERS.StateManager = (function() {
         b: { base: 128, infl: 75, bright: 0, contrast: 100, invert: false },
         a: { base: 0, infl: 30, bright: 0, contrast: 100, invert: false },
       };
-      if (state.history && state.history.sliders) {
-        Object.keys(state.history.sliders).forEach(key => {
-          state.history.sliders[key].undo = [];
-          state.history.sliders[key].redo = [];
-        });
-      }
     },
     resetCurves: () => {
       state.curves = {
@@ -509,12 +470,6 @@ MERS.StateManager = (function() {
         b: [{ x: 0, y: 160 }, { x: 520, y: 0 }],
         a: [{ x: 0, y: 160 }, { x: 520, y: 0 }],
       };
-      if (state.history && state.history.curves) {
-        Object.keys(state.history.curves).forEach(key => {
-          state.history.curves[key].undo = [];
-          state.history.curves[key].redo = [];
-        });
-      }
     }
   };
 })();
@@ -807,70 +762,6 @@ MERS.CurvesEditor = (function() {
   'use strict';
   
   const { lerp } = MERS.Utils;
-  const curveDrawers = {};
-
-  function ensureCurveHistory(key) {
-    const state = MERS.StateManager.getState();
-    if (!state.history) {
-      state.history = { curves: {}, sliders: {} };
-    }
-    if (!state.history.curves) state.history.curves = {};
-    if (!state.history.curves[key]) {
-      state.history.curves[key] = { undo: [], redo: [] };
-    }
-    return state.history.curves[key];
-  }
-
-  function snapshotCurve(key) {
-    const state = MERS.StateManager.getState();
-    return state.curves[key].map(p => ({ x: p.x, y: p.y }));
-  }
-
-  function curvesEqual(a, b) {
-    if (!a || !b || a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (a[i].x !== b[i].x || a[i].y !== b[i].y) return false;
-    }
-    return true;
-  }
-
-  function updateCurveUndoRedoButtons(key) {
-    const history = ensureCurveHistory(key);
-    const suffix = key.toUpperCase();
-    const undoBtn = document.getElementById(`curveUndo${suffix}`);
-    const redoBtn = document.getElementById(`curveRedo${suffix}`);
-    if (undoBtn) undoBtn.disabled = history.undo.length === 0;
-    if (redoBtn) redoBtn.disabled = history.redo.length === 0;
-  }
-
-  function pushCurveHistory(key, snapshot) {
-    const history = ensureCurveHistory(key);
-    history.undo.push(snapshot);
-    history.redo.length = 0;
-    updateCurveUndoRedoButtons(key);
-  }
-
-  function undoCurve(key) {
-    const history = ensureCurveHistory(key);
-    if (!history.undo.length) return;
-    const state = MERS.StateManager.getState();
-    history.redo.push(snapshotCurve(key));
-    state.curves[key] = history.undo.pop();
-    if (curveDrawers[key]) curveDrawers[key]();
-    updateCurveUndoRedoButtons(key);
-    MERS.Core.recompute();
-  }
-
-  function redoCurve(key) {
-    const history = ensureCurveHistory(key);
-    if (!history.redo.length) return;
-    const state = MERS.StateManager.getState();
-    history.undo.push(snapshotCurve(key));
-    state.curves[key] = history.redo.pop();
-    if (curveDrawers[key]) curveDrawers[key]();
-    updateCurveUndoRedoButtons(key);
-    MERS.Core.recompute();
-  }
 
   function evalCurveAt(key, x01) {
     const state = MERS.StateManager.getState();
@@ -890,7 +781,6 @@ MERS.CurvesEditor = (function() {
     const radius = 6;
     let dragPoint = null;
     let dragIdx = -1;
-    let pendingSnapshot = null;
 
     function draw() {
       const state = MERS.StateManager.getState();
@@ -935,7 +825,6 @@ MERS.CurvesEditor = (function() {
         ctx.stroke();
       }
     }
-    curveDrawers[key] = draw;
 
     function nearestCanvasXY(e) {
       const rect = canvas.getBoundingClientRect();
@@ -966,7 +855,6 @@ MERS.CurvesEditor = (function() {
       const i = nearestIndex(x, y);
       const state = MERS.StateManager.getState();
       if (i > 0 && i < state.curves[key].length - 1) {
-        pushCurveHistory(key, snapshotCurve(key));
         state.curves[key].splice(i, 1);
         draw();
         MERS.Core.recompute();
@@ -974,7 +862,6 @@ MERS.CurvesEditor = (function() {
     });
 
     canvas.addEventListener('mousedown', e => {
-      pendingSnapshot = snapshotCurve(key);
       const { x, y } = nearestCanvasXY(e);
       const i = nearestIndex(x, y);
       const state = MERS.StateManager.getState();
@@ -1007,10 +894,6 @@ MERS.CurvesEditor = (function() {
     });
 
     window.addEventListener('mouseup', () => {
-      if (pendingSnapshot && !curvesEqual(pendingSnapshot, MERS.StateManager.getState().curves[key])) {
-        pushCurveHistory(key, pendingSnapshot);
-      }
-      pendingSnapshot = null;
       dragPoint = null;
       dragIdx = -1;
     });
@@ -1025,23 +908,10 @@ MERS.CurvesEditor = (function() {
     bindCurve(document.getElementById('curveA'), 'a');
   }
 
-  function buildCurveLUT(key) {
-    const lut = new Uint8Array(256);
-    for (let i = 0; i < 256; i++) {
-      const v = evalCurveAt(key, i / 255);
-      lut[i] = Math.round(Math.max(0, Math.min(1, v)) * 255);
-    }
-    return lut;
-  }
-
   return {
     evalCurveAt,
     bindCurve,
-    drawAllCurves,
-    buildCurveLUT,
-    undoCurve,
-    redoCurve,
-    updateCurveUndoRedoButtons
+    drawAllCurves
   };
 })();
 
@@ -1616,6 +1486,17 @@ MERS.FileManager = (function() {
   
   const { $ } = MERS.Utils;
 
+  function setIdentitySlidersForEdit() {
+    // Identity defaults for editing an existing MER/MERS file: output == input.
+    const state = MERS.StateManager.getState();
+    state.sliders = {
+      r: { base: 0, infl: 100, bright: 0, contrast: 100, invert: false },
+      g: { base: 0, infl: 100, bright: 0, contrast: 100, invert: false },
+      b: { base: 0, infl: 100, bright: 0, contrast: 100, invert: false },
+      a: { base: 0, infl: 100, bright: 0, contrast: 100, invert: false },
+    };
+  }
+
   function loadTexture(file) {
     const nameSpan = $('#texName');
     nameSpan.textContent = file.name;
@@ -1630,6 +1511,7 @@ MERS.FileManager = (function() {
           c.height = img.height;
           c.getContext('2d').drawImage(img, 0, 0);
           const state = MERS.StateManager.getState();
+          state.srcIsMERS = false;
           state.src = c.getContext('2d').getImageData(0, 0, c.width, c.height);
           MERS.ImageProcessor.drawInto($('#canvasSrc'), state.src);
           $('#srcInfo').textContent = `${c.width}×${c.height}`;
@@ -1638,7 +1520,7 @@ MERS.FileManager = (function() {
           MERS.PaintTool.initPaintLayer(c.width, c.height);
           
           state.anim.w = c.width;
-          state.anim.h = c.height;
+          state.anim.h = c.width;
           MERS.AnimationManager.updateFrameControls(c.width, c.height);
           MERS.Core.rebuildRefColorMap();
           MERS.Core.recompute();
@@ -1656,6 +1538,7 @@ MERS.FileManager = (function() {
     } else {
       reader.onload = () => {
         const state = MERS.StateManager.getState();
+        state.srcIsMERS = false;
         state.src = MERS.ImageProcessor.parseTGA(new DataView(reader.result));
         MERS.ImageProcessor.drawInto($('#canvasSrc'), state.src);
         $('#srcInfo').textContent = `${state.src.width}×${state.src.height}`;
@@ -1664,7 +1547,7 @@ MERS.FileManager = (function() {
         MERS.PaintTool.initPaintLayer(state.src.width, state.src.height);
         
         state.anim.w = state.src.width;
-        state.anim.h = state.src.height;
+        state.anim.h = state.src.width;
         MERS.AnimationManager.updateFrameControls(state.src.width, state.src.height);
         MERS.Core.rebuildRefColorMap();
         MERS.Core.recompute();
@@ -1680,24 +1563,186 @@ MERS.FileManager = (function() {
     }
   }
 
+  // Load an existing MER/MERS file (PNG or TGA) directly into the editor.
+  // This bypasses the grayscale-to-MERS conversion and treats RGBA as MERS channels.
+  function loadMersEdit(file) {
+    const nameSpan = $('#texName');
+    nameSpan.textContent = file.name;
+    const reader = new FileReader();
+
+    // Clear any "use reference map" toggle so identity stays predictable.
+    try {
+      const cb1 = document.getElementById('useRefMap');
+      const cb2 = document.getElementById('useRefMapTop');
+      if (cb1) cb1.checked = false;
+      if (cb2) cb2.checked = false;
+    } catch(e){}
+
+    function afterLoad(imgd) {
+      const state = MERS.StateManager.getState();
+      state.srcIsMERS = true;
+      state.mappingOn = false;
+      // If any "copy reference channel" toggles are enabled, turn them off
+      // so the loaded MERS isn't immediately overwritten by the reference.
+      if (state.copyRefChannels) {
+        state.copyRefChannels = { r: false, g: false, b: false, a: false };
+      }
+      // Reset sliders to identity so the loaded MERS looks identical.
+      setIdentitySlidersForEdit();
+      // Update slider UI to reflect the new identity defaults.
+      try {
+        const names = { r: 'Red • Metalness', g: 'Green • Emissive', b: 'Blue • Roughness', a: 'Alpha • SSS' };
+        const colors = { r: '#ef4444', g: '#10b981', b: '#3b82f6', a: '#a855f7' };
+        ['r','g','b','a'].forEach(ch => {
+          if (MERS.UIManager && typeof MERS.UIManager.buildChannelGroup === 'function') {
+            MERS.UIManager.buildChannelGroup(ch, names[ch], colors[ch]);
+          }
+        });
+      } catch(e){}
+      // Keep curves as-is (they are identity by default).
+      state.src = imgd;
+      MERS.ImageProcessor.drawInto($('#canvasSrc'), state.src);
+      $('#srcInfo').textContent = `${imgd.width}×${imgd.height}`;
+      $('#dimInfo').textContent = `${imgd.width}×${imgd.height}`;
+
+      MERS.PaintTool.initPaintLayer(imgd.width, imgd.height);
+
+      state.anim.w = imgd.width;
+      state.anim.h = imgd.height;
+      MERS.AnimationManager.updateFrameControls(imgd.width, imgd.height);
+      MERS.Core.rebuildRefColorMap();
+      MERS.Core.recompute();
+      // Fit nicely within the preview.
+      {
+        const st = MERS.StateManager.getState();
+        st.zoom = 0.87;
+        const zoomLabel = document.getElementById('zoomVal');
+        if (zoomLabel) zoomLabel.textContent = Math.round(st.zoom * 100) + '%';
+      }
+    }
+
+    if (file.name.toLowerCase().endsWith('.png')) {
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement('canvas');
+          c.width = img.width;
+          c.height = img.height;
+          c.getContext('2d').drawImage(img, 0, 0);
+          afterLoad(c.getContext('2d').getImageData(0, 0, c.width, c.height));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      reader.onload = () => {
+        afterLoad(MERS.ImageProcessor.parseTGA(new DataView(reader.result)));
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  }
+
   function loadReference(file) {
     const nameSpan = $('#refName');
     nameSpan.textContent = file.name;
     const reader = new FileReader();
-    reader.onload = () => {
-      const ref = MERS.ImageProcessor.parseTGA(new DataView(reader.result));
-      const state = MERS.StateManager.getState();
-      state.ref = ref;
-      MERS.PreviewManager.drawReference();
-      MERS.UIManager.updateRefControls();
-      MERS.Core.rebuildRefColorMap();
-    };
-    reader.readAsArrayBuffer(file);
+    if (file.name.toLowerCase().endsWith('.png')) {
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement('canvas');
+          c.width = img.width;
+          c.height = img.height;
+          c.getContext('2d').drawImage(img, 0, 0);
+          const ref = c.getContext('2d').getImageData(0, 0, c.width, c.height);
+          const state = MERS.StateManager.getState();
+          state.ref = ref;
+          MERS.PreviewManager.drawReference();
+          MERS.UIManager.updateRefControls();
+          MERS.Core.rebuildRefColorMap();
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      reader.onload = () => {
+        const ref = MERS.ImageProcessor.parseTGA(new DataView(reader.result));
+        const state = MERS.StateManager.getState();
+        state.ref = ref;
+        MERS.PreviewManager.drawReference();
+        MERS.UIManager.updateRefControls();
+        MERS.Core.rebuildRefColorMap();
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  }
+
+  // Take the currently loaded reference and make it the active editable MERS in the editor.
+  // Useful when you want to start from an existing MERS without re-importing it again.
+  function applyReferenceToYour() {
+    const state = MERS.StateManager.getState();
+    if (!state.ref) return;
+
+    const w = state.src ? state.src.width : state.ref.width;
+    const h = state.src ? state.src.height : state.ref.height;
+    const imgd = MERS.ImageProcessor.resampleImageData(state.ref, w, h);
+
+    // Update label in the "Texture input" chip for clarity.
+    const refLabel = (document.getElementById('refName') && document.getElementById('refName').textContent) ? document.getElementById('refName').textContent : 'reference';
+    const nameSpan = $('#texName');
+    if (nameSpan) nameSpan.textContent = `${refLabel} (applied)`;
+
+    // Clear any "use reference map" toggles so this remains a direct edit.
+    try {
+      const cb1 = document.getElementById('useRefMap');
+      const cb2 = document.getElementById('useRefMapTop');
+      if (cb1) cb1.checked = false;
+      if (cb2) cb2.checked = false;
+    } catch(e){}
+
+    state.srcIsMERS = true;
+    state.mappingOn = false;
+    if (state.copyRefChannels) {
+      state.copyRefChannels = { r: false, g: false, b: false, a: false };
+    }
+    setIdentitySlidersForEdit();
+
+    // Update slider UI to reflect identity defaults.
+    try {
+      const names = { r: 'Red • Metalness', g: 'Green • Emissive', b: 'Blue • Roughness', a: 'Alpha • SSS' };
+      const colors = { r: '#ef4444', g: '#10b981', b: '#3b82f6', a: '#a855f7' };
+      ['r','g','b','a'].forEach(ch => {
+        if (MERS.UIManager && typeof MERS.UIManager.buildChannelGroup === 'function') {
+          MERS.UIManager.buildChannelGroup(ch, names[ch], colors[ch]);
+        }
+      });
+    } catch(e){}
+
+    state.src = imgd;
+    MERS.ImageProcessor.drawInto($('#canvasSrc'), state.src);
+    const srcInfo = document.getElementById('srcInfo');
+    const dimInfo = document.getElementById('dimInfo');
+    if (srcInfo) srcInfo.textContent = `${w}×${h}`;
+    if (dimInfo) dimInfo.textContent = `${w}×${h}`;
+
+    MERS.PaintTool.initPaintLayer(w, h);
+    state.anim.w = w;
+    state.anim.h = h;
+    MERS.AnimationManager.updateFrameControls(w, h);
+    MERS.Core.rebuildRefColorMap();
+    MERS.Core.recompute();
+
+    // Fit nicely within the preview.
+    state.zoom = 0.87;
+    const zoomLabel = document.getElementById('zoomVal');
+    if (zoomLabel) zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
   }
 
   return {
     loadTexture,
-    loadReference
+    loadMersEdit,
+    loadReference,
+    applyReferenceToYour
   };
 })();
 
@@ -2038,66 +2083,6 @@ MERS.UIManager = (function() {
   'use strict';
   
   const { $ } = MERS.Utils;
-  const channelMeta = {
-    r: { name: 'Red • Metalness', color: '#ef4444' },
-    g: { name: 'Green • Emissive', color: '#10b981' },
-    b: { name: 'Blue • Roughness', color: '#3b82f6' },
-    a: { name: 'Alpha • SSS', color: '#a855f7' }
-  };
-
-  function ensureSliderHistory(key) {
-    const state = MERS.StateManager.getState();
-    if (!state.history) {
-      state.history = { curves: {}, sliders: {} };
-    }
-    if (!state.history.sliders) state.history.sliders = {};
-    if (!state.history.sliders[key]) {
-      state.history.sliders[key] = { undo: [], redo: [] };
-    }
-    return state.history.sliders[key];
-  }
-
-  function snapshotSliderState(key) {
-    const state = MERS.StateManager.getState();
-    const s = state.sliders[key];
-    return {
-      base: s.base,
-      infl: s.infl,
-      bright: s.bright,
-      contrast: s.contrast,
-      invert: s.invert
-    };
-  }
-
-  function slidersEqual(a, b) {
-    return a && b &&
-      a.base === b.base &&
-      a.infl === b.infl &&
-      a.bright === b.bright &&
-      a.contrast === b.contrast &&
-      a.invert === b.invert;
-  }
-
-  function updateSliderUndoRedoButtons(key) {
-    const history = ensureSliderHistory(key);
-    const suffix = key.toUpperCase();
-    const undoBtn = document.getElementById(`sliderUndo${suffix}`);
-    const redoBtn = document.getElementById(`sliderRedo${suffix}`);
-    if (undoBtn) undoBtn.disabled = history.undo.length === 0;
-    if (redoBtn) redoBtn.disabled = history.redo.length === 0;
-  }
-
-  function pushSliderHistory(key, snapshot) {
-    const history = ensureSliderHistory(key);
-    history.undo.push(snapshot);
-    history.redo.length = 0;
-    updateSliderUndoRedoButtons(key);
-  }
-
-  function rebuildChannelGroup(key) {
-    const meta = channelMeta[key];
-    buildChannelGroup(key, meta.name, meta.color);
-  }
 
   function sliderTemplate(label, id, min, max, val, fmt = '') {
     return `
@@ -2113,13 +2098,8 @@ MERS.UIManager = (function() {
     const cont = document.getElementById('group' + key.toUpperCase());
     const s = state.sliders[key];
     cont.innerHTML = `
-      <div class="row" style="justify-content:space-between;gap:8px;">
-        <span class="chip" style="border-color:${color};color:${color}">${name}</span>
-        <div class="row" style="gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-          <button class="btn small" id="sliderUndo${key.toUpperCase()}">↺ Sliders</button>
-          <button class="btn small" id="sliderRedo${key.toUpperCase()}">↻ Sliders</button>
-          <label class="switch"><input id="inv-${key}" type="checkbox" ${s.invert ? 'checked' : ''}> invert</label>
-        </div>
+      <div class="row"><span class="chip" style="border-color:${color};color:${color}">${name}</span>
+        <label class="switch"><input id="inv-${key}" type="checkbox" ${s.invert ? 'checked' : ''}> invert</label>
       </div>
       ${sliderTemplate('Base', `${key}-base`, 0, 255, s.base)}
       ${sliderTemplate('Texture influence %', `${key}-infl`, 0, 200, s.infl)}
@@ -2127,26 +2107,9 @@ MERS.UIManager = (function() {
       ${sliderTemplate('Contrast %', `${key}-contrast`, 25, 300, s.contrast)}
     `;
 
-    let pendingSnapshot = null;
-    const beginEdit = () => {
-      if (!pendingSnapshot) pendingSnapshot = snapshotSliderState(key);
-    };
-    const endEdit = () => {
-      if (!pendingSnapshot) return;
-      const current = snapshotSliderState(key);
-      if (!slidersEqual(pendingSnapshot, current)) {
-        pushSliderHistory(key, pendingSnapshot);
-      }
-      pendingSnapshot = null;
-    };
-
     ['base', 'infl', 'bright', 'contrast'].forEach(k => {
       const el = document.getElementById(`${key}-${k}`);
       const val = document.getElementById(`${key}-${k}V`);
-      el.addEventListener('pointerdown', beginEdit);
-      el.addEventListener('keydown', beginEdit);
-      el.addEventListener('change', endEdit);
-      el.addEventListener('blur', endEdit);
       el.addEventListener('input', () => {
         state.sliders[key][k] = Number(el.value);
         val.textContent = el.value + (k === 'infl' ? '' : '');
@@ -2154,37 +2117,9 @@ MERS.UIManager = (function() {
       });
     });
     document.getElementById(`inv-${key}`).addEventListener('change', e => {
-      const snapshot = snapshotSliderState(key);
       state.sliders[key].invert = e.target.checked;
-      pushSliderHistory(key, snapshot);
       MERS.Core.recompute();
     });
-
-    const undoBtn = document.getElementById(`sliderUndo${key.toUpperCase()}`);
-    const redoBtn = document.getElementById(`sliderRedo${key.toUpperCase()}`);
-    if (undoBtn) {
-      undoBtn.addEventListener('click', () => {
-        const history = ensureSliderHistory(key);
-        if (!history.undo.length) return;
-        history.redo.push(snapshotSliderState(key));
-        state.sliders[key] = history.undo.pop();
-        rebuildChannelGroup(key);
-        updateSliderUndoRedoButtons(key);
-        MERS.Core.recompute();
-      });
-    }
-    if (redoBtn) {
-      redoBtn.addEventListener('click', () => {
-        const history = ensureSliderHistory(key);
-        if (!history.redo.length) return;
-        history.undo.push(snapshotSliderState(key));
-        state.sliders[key] = history.redo.pop();
-        rebuildChannelGroup(key);
-        updateSliderUndoRedoButtons(key);
-        MERS.Core.recompute();
-      });
-    }
-    updateSliderUndoRedoButtons(key);
   }
 
   function setMappingOn(v) {
@@ -2227,6 +2162,13 @@ MERS.UIManager = (function() {
         sel.value = state.refMatch;
       }
     });
+
+    // Enable the "Apply reference" convenience button only when a reference is loaded.
+    const applyBtn = document.getElementById('applyRefToYour');
+    if (applyBtn) {
+      applyBtn.disabled = !state.ref;
+      applyBtn.style.opacity = state.ref ? '1' : '0.5';
+    }
   }
 
   function resetView() {
@@ -2244,40 +2186,47 @@ MERS.UIManager = (function() {
 
   function bindEventListeners() {
     // Channel groups
-    ['r', 'g', 'b', 'a'].forEach(rebuildChannelGroup);
+    ['r', 'g', 'b', 'a'].forEach(ch => {
+      const names = { r: 'Red • Metalness', g: 'Green • Emissive', b: 'Blue • Roughness', a: 'Alpha • SSS' };
+      const colors = { r: '#ef4444', g: '#10b981', b: '#3b82f6', a: '#a855f7' };
+      buildChannelGroup(ch, names[ch], colors[ch]);
+    });
 
     // Reset buttons
     $('#resetSliders').addEventListener('click', () => {
       MERS.StateManager.resetSliders();
-      ['r', 'g', 'b', 'a'].forEach(rebuildChannelGroup);
+      ['r', 'g', 'b', 'a'].forEach(ch => buildChannelGroup(ch, '', ''));
       MERS.Core.recompute();
     });
     $('#resetCurves').addEventListener('click', () => {
       MERS.StateManager.resetCurves();
       MERS.CurvesEditor.drawAllCurves();
-      ['r', 'g', 'b', 'a'].forEach(ch => MERS.CurvesEditor.updateCurveUndoRedoButtons(ch));
       MERS.Core.recompute();
-    });
-
-    // Curve undo/redo buttons
-    ['r', 'g', 'b', 'a'].forEach(ch => {
-      const up = ch.toUpperCase();
-      const undoBtn = document.getElementById(`curveUndo${up}`);
-      const redoBtn = document.getElementById(`curveRedo${up}`);
-      if (undoBtn) undoBtn.addEventListener('click', () => MERS.CurvesEditor.undoCurve(ch));
-      if (redoBtn) redoBtn.addEventListener('click', () => MERS.CurvesEditor.redoCurve(ch));
-      MERS.CurvesEditor.updateCurveUndoRedoButtons(ch);
     });
 
     // File pickers
     $('#pickTex').addEventListener('click', () => $('#fileTex').click());
+    $('#pickMers').addEventListener('click', () => $('#fileMers').click());
     $('#pickRef').addEventListener('click', () => $('#fileRef').click());
     $('#fileTex').addEventListener('change', e => {
       if (e.target.files[0]) MERS.FileManager.loadTexture(e.target.files[0]);
     });
+    $('#fileMers').addEventListener('change', e => {
+      if (e.target.files[0]) MERS.FileManager.loadMersEdit(e.target.files[0]);
+    });
     $('#fileRef').addEventListener('change', e => {
       if (e.target.files[0]) MERS.FileManager.loadReference(e.target.files[0]);
     });
+
+    // Convenience: bake the currently-loaded reference MERS into the editor for further edits.
+    const applyRefBtn = document.getElementById('applyRefToYour');
+    if (applyRefBtn) {
+      applyRefBtn.addEventListener('click', () => {
+        if (MERS.FileManager && typeof MERS.FileManager.applyReferenceToYour === 'function') {
+          MERS.FileManager.applyReferenceToYour();
+        }
+      });
+    }
 
     // Toggles
     ['useRefMap', 'useRefMapTop'].forEach(id => {
@@ -2782,42 +2731,8 @@ MERS.Core = (function() {
     const w = state.src.width, h = state.src.height;
     const result = new ImageData(w, h);
     const S = state.src.data, R = result.data;
-    const curveLUT = {
-      r: MERS.CurvesEditor.buildCurveLUT('r'),
-      g: MERS.CurvesEditor.buildCurveLUT('g'),
-      b: MERS.CurvesEditor.buildCurveLUT('b'),
-      a: MERS.CurvesEditor.buildCurveLUT('a')
-    };
-    const sliderParams = {
-      r: {
-        base: state.sliders.r.base / 255,
-        infl: state.sliders.r.infl / 100,
-        contrast: state.sliders.r.contrast / 100,
-        bright: state.sliders.r.bright / 255,
-        invert: state.sliders.r.invert
-      },
-      g: {
-        base: state.sliders.g.base / 255,
-        infl: state.sliders.g.infl / 100,
-        contrast: state.sliders.g.contrast / 100,
-        bright: state.sliders.g.bright / 255,
-        invert: state.sliders.g.invert
-      },
-      b: {
-        base: state.sliders.b.base / 255,
-        infl: state.sliders.b.infl / 100,
-        contrast: state.sliders.b.contrast / 100,
-        bright: state.sliders.b.bright / 255,
-        invert: state.sliders.b.invert
-      },
-      a: {
-        base: state.sliders.a.base / 255,
-        infl: state.sliders.a.infl / 100,
-        contrast: state.sliders.a.contrast / 100,
-        bright: state.sliders.a.bright / 255,
-        invert: state.sliders.a.invert
-      }
-    };
+
+    const srcIsMERS = !!state.srcIsMERS;
 
     const cmap = (state.mappingOn && state.refMapByColor && state.refMapByColor.map) ? state.refMapByColor.map : null;
     const byPixel = state.mappingOn && state.refMatch === 'pixel' && state.refRes ? true : false;
@@ -2831,6 +2746,10 @@ MERS.Core = (function() {
         const texGray = toGray(sr, sg, sb) / 255;
 
         let texR, texG, texB, texA;
+        // Priority order:
+        // 1) If ref mapping is enabled (pixel or by-color), use the reference.
+        // 2) Else if the source is already a MER/MERS texture, treat RGBA as MERS channels.
+        // 3) Else fall back to legacy grayscale-based conversion.
         if (byPixel) {
           const ref = state.refRes && state.refRes.data;
           const Ridx = i;
@@ -2855,25 +2774,32 @@ MERS.Core = (function() {
             texR = texG = texB = texGray;
             texA = sa / 255;
           }
+        } else if (srcIsMERS) {
+          texR = sr / 255;
+          texG = sg / 255;
+          texB = sb / 255;
+          texA = sa / 255;
         } else {
           texR = texG = texB = texGray;
           texA = sa / 255;
         }
 
         function chVal(key, tex01) {
-          const sl = sliderParams[key];
+          const sl = state.sliders[key];
           let v01;
           if (state.mappingOn) {
             v01 = tex01;
           } else {
-            v01 = sl.base + (tex01 - sl.base) * sl.infl;
+            const base01 = sl.base / 255;
+            const infl01 = sl.infl / 100;
+            v01 = base01 + (tex01 - base01) * infl01;
           }
-          v01 = (v01 - 0.5) * sl.contrast + 0.5;
-          v01 += sl.bright;
+          v01 = (v01 - 0.5) * (sl.contrast / 100) + 0.5;
+          v01 += sl.bright / 255;
           v01 = Math.max(0, Math.min(1, v01));
-          let v = curveLUT[key][Math.round(v01 * 255)];
-          if (sl.invert) v = 255 - v;
-          return v;
+          v01 = MERS.CurvesEditor.evalCurveAt(key, v01);
+          if (sl.invert) v01 = 1 - v01;
+          return Math.round(v01 * 255);
         }
 
         let RR = chVal('r', texR);
@@ -3471,7 +3397,7 @@ if (typeof st.upTol !== 'number') st.upTol = 0;
           let ok = false;
           for (const k of palette16Keys) {
             const [R,G,B,A] = k.split(',').map(Number);
-            if (Math.abs(R-d[i])<=tol && Math.abs(G-d[i+1])<=tol && Math.abs(B-d[i+2])<=tol && Math.abs(A-d[i+3])<=tol) { ok = true; break; }
+            if (Math.abs(R-d[i])<=tol && Math.abs(G-d[i+1])<=tol && Math.abs(B-d[i+2])<=tol && Math.abs(A-d[i+3])<=tol) { ok = True; break; }
           }
           if (ok) continue;
         }
@@ -4938,11 +4864,8 @@ if (wrapSrc) {
   }
 
   void main(){
-    vec3 V = normalize(uCamPos - vWPos);
     vec3 N = normalize(vN);
-    if (dot(N, V) < 0.0) {
-      N = -N;
-    }
+    vec3 V = normalize(uCamPos - vWPos);
     vec3 L; float att = 1.0;
     if (uLightKind > 0.5) {
       vec3 toL = uLightPos - vWPos;
@@ -4965,7 +4888,7 @@ if (wrapSrc) {
     float sss = clamp(mers.a, 0.0, 1.0);
 
     // PBR core
-    float NoL = clamp(abs(dot(N,L)), 0.0, 1.0);
+    float NoL = clamp(dot(N,L), 0.0, 1.0);
     float NoV = clamp(dot(N,V), 0.0, 1.0);
     float NoH = clamp(dot(N,H), 0.0, 1.0);
     float VoH = clamp(dot(V,H), 0.0, 1.0);
@@ -4988,7 +4911,7 @@ if (wrapSrc) {
 
     // Simple wrap lighting for "SSS" feel
     float wrap = mix(0.0, 0.5, sss);
-    float NoL_wrap = clamp((abs(dot(N,L)) + wrap) / (1.0 + wrap), 0.0, 1.0);
+    float NoL_wrap = clamp((dot(N,L) + wrap) / (1.0 + wrap), 0.0, 1.0);
 
     vec3 Lo = (uLightIntensity * att) * ( (diffuseColor/3.14159) * NoL_wrap + spec * NoL );
 
