@@ -123,15 +123,21 @@
 <div class="row mt">
 <button class="btn" id="pickTex">Choose PNG/TGA</button>
 <input accept=".png,.tga" id="fileTex" type="file"/>
+<button class="btn" id="pickMers">Load and edit MER/MERS</button>
+<input accept=".png,.tga" id="fileMers" type="file"/>
 <span class="chip" id="texName">No texture</span>
 </div>
 <hr style="border:none;border-top:1px solid var(--border);margin:12px 0"/>
 <h3>Reference MERS (optional)</h3>
-<p class="muted">Load a .tga MERS file to preview beside your result or drive per-pixel mapping.</p>
+<p class="muted">Load a .tga/.png MERS file to preview beside your result or drive per-pixel mapping.</p>
 <div class="row mt">
-<button class="btn" id="pickRef">Choose TGA</button>
-<input accept=".tga" id="fileRef" type="file"/>
+<button class="btn" id="pickRef">Choose TGA/PNG</button>
+<input accept=".tga,.png" id="fileRef" type="file"/>
 <span class="chip" id="refName">No reference</span>
+</div>
+<div class="row mt">
+  <button class="btn small" id="applyRefToYour" disabled>Apply reference → Your MERS preview</button>
+  <span class="muted" style="font-size:12px">(bakes the loaded reference into the editor for further edits)</span>
 </div>
 <div class="row mt">
 <label class="switch"><input id="useRefMap" type="checkbox"/> Use reference as per-pixel map</label>
@@ -382,6 +388,9 @@ MERS.StateManager = (function() {
   
   const state = {
     src: null,
+    // When true, the loaded "texture input" is already a MER/MERS texture.
+    // In that case we interpret src RGBA directly as MERS RGBA instead of converting from grayscale.
+    srcIsMERS: false,
     ref: null,
     mappingOn: false,
     refMatch: 'color',
@@ -1477,6 +1486,17 @@ MERS.FileManager = (function() {
   
   const { $ } = MERS.Utils;
 
+  function setIdentitySlidersForEdit() {
+    // Identity defaults for editing an existing MER/MERS file: output == input.
+    const state = MERS.StateManager.getState();
+    state.sliders = {
+      r: { base: 0, infl: 100, bright: 0, contrast: 100, invert: false },
+      g: { base: 0, infl: 100, bright: 0, contrast: 100, invert: false },
+      b: { base: 0, infl: 100, bright: 0, contrast: 100, invert: false },
+      a: { base: 0, infl: 100, bright: 0, contrast: 100, invert: false },
+    };
+  }
+
   function loadTexture(file) {
     const nameSpan = $('#texName');
     nameSpan.textContent = file.name;
@@ -1491,6 +1511,7 @@ MERS.FileManager = (function() {
           c.height = img.height;
           c.getContext('2d').drawImage(img, 0, 0);
           const state = MERS.StateManager.getState();
+          state.srcIsMERS = false;
           state.src = c.getContext('2d').getImageData(0, 0, c.width, c.height);
           MERS.ImageProcessor.drawInto($('#canvasSrc'), state.src);
           $('#srcInfo').textContent = `${c.width}×${c.height}`;
@@ -1517,6 +1538,7 @@ MERS.FileManager = (function() {
     } else {
       reader.onload = () => {
         const state = MERS.StateManager.getState();
+        state.srcIsMERS = false;
         state.src = MERS.ImageProcessor.parseTGA(new DataView(reader.result));
         MERS.ImageProcessor.drawInto($('#canvasSrc'), state.src);
         $('#srcInfo').textContent = `${state.src.width}×${state.src.height}`;
@@ -1541,24 +1563,186 @@ MERS.FileManager = (function() {
     }
   }
 
+  // Load an existing MER/MERS file (PNG or TGA) directly into the editor.
+  // This bypasses the grayscale-to-MERS conversion and treats RGBA as MERS channels.
+  function loadMersEdit(file) {
+    const nameSpan = $('#texName');
+    nameSpan.textContent = file.name;
+    const reader = new FileReader();
+
+    // Clear any "use reference map" toggle so identity stays predictable.
+    try {
+      const cb1 = document.getElementById('useRefMap');
+      const cb2 = document.getElementById('useRefMapTop');
+      if (cb1) cb1.checked = false;
+      if (cb2) cb2.checked = false;
+    } catch(e){}
+
+    function afterLoad(imgd) {
+      const state = MERS.StateManager.getState();
+      state.srcIsMERS = true;
+      state.mappingOn = false;
+      // If any "copy reference channel" toggles are enabled, turn them off
+      // so the loaded MERS isn't immediately overwritten by the reference.
+      if (state.copyRefChannels) {
+        state.copyRefChannels = { r: false, g: false, b: false, a: false };
+      }
+      // Reset sliders to identity so the loaded MERS looks identical.
+      setIdentitySlidersForEdit();
+      // Update slider UI to reflect the new identity defaults.
+      try {
+        const names = { r: 'Red • Metalness', g: 'Green • Emissive', b: 'Blue • Roughness', a: 'Alpha • SSS' };
+        const colors = { r: '#ef4444', g: '#10b981', b: '#3b82f6', a: '#a855f7' };
+        ['r','g','b','a'].forEach(ch => {
+          if (MERS.UIManager && typeof MERS.UIManager.buildChannelGroup === 'function') {
+            MERS.UIManager.buildChannelGroup(ch, names[ch], colors[ch]);
+          }
+        });
+      } catch(e){}
+      // Keep curves as-is (they are identity by default).
+      state.src = imgd;
+      MERS.ImageProcessor.drawInto($('#canvasSrc'), state.src);
+      $('#srcInfo').textContent = `${imgd.width}×${imgd.height}`;
+      $('#dimInfo').textContent = `${imgd.width}×${imgd.height}`;
+
+      MERS.PaintTool.initPaintLayer(imgd.width, imgd.height);
+
+      state.anim.w = imgd.width;
+      state.anim.h = imgd.height;
+      MERS.AnimationManager.updateFrameControls(imgd.width, imgd.height);
+      MERS.Core.rebuildRefColorMap();
+      MERS.Core.recompute();
+      // Fit nicely within the preview.
+      {
+        const st = MERS.StateManager.getState();
+        st.zoom = 0.87;
+        const zoomLabel = document.getElementById('zoomVal');
+        if (zoomLabel) zoomLabel.textContent = Math.round(st.zoom * 100) + '%';
+      }
+    }
+
+    if (file.name.toLowerCase().endsWith('.png')) {
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement('canvas');
+          c.width = img.width;
+          c.height = img.height;
+          c.getContext('2d').drawImage(img, 0, 0);
+          afterLoad(c.getContext('2d').getImageData(0, 0, c.width, c.height));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      reader.onload = () => {
+        afterLoad(MERS.ImageProcessor.parseTGA(new DataView(reader.result)));
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  }
+
   function loadReference(file) {
     const nameSpan = $('#refName');
     nameSpan.textContent = file.name;
     const reader = new FileReader();
-    reader.onload = () => {
-      const ref = MERS.ImageProcessor.parseTGA(new DataView(reader.result));
-      const state = MERS.StateManager.getState();
-      state.ref = ref;
-      MERS.PreviewManager.drawReference();
-      MERS.UIManager.updateRefControls();
-      MERS.Core.rebuildRefColorMap();
-    };
-    reader.readAsArrayBuffer(file);
+    if (file.name.toLowerCase().endsWith('.png')) {
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement('canvas');
+          c.width = img.width;
+          c.height = img.height;
+          c.getContext('2d').drawImage(img, 0, 0);
+          const ref = c.getContext('2d').getImageData(0, 0, c.width, c.height);
+          const state = MERS.StateManager.getState();
+          state.ref = ref;
+          MERS.PreviewManager.drawReference();
+          MERS.UIManager.updateRefControls();
+          MERS.Core.rebuildRefColorMap();
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      reader.onload = () => {
+        const ref = MERS.ImageProcessor.parseTGA(new DataView(reader.result));
+        const state = MERS.StateManager.getState();
+        state.ref = ref;
+        MERS.PreviewManager.drawReference();
+        MERS.UIManager.updateRefControls();
+        MERS.Core.rebuildRefColorMap();
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  }
+
+  // Take the currently loaded reference and make it the active editable MERS in the editor.
+  // Useful when you want to start from an existing MERS without re-importing it again.
+  function applyReferenceToYour() {
+    const state = MERS.StateManager.getState();
+    if (!state.ref) return;
+
+    const w = state.src ? state.src.width : state.ref.width;
+    const h = state.src ? state.src.height : state.ref.height;
+    const imgd = MERS.ImageProcessor.resampleImageData(state.ref, w, h);
+
+    // Update label in the "Texture input" chip for clarity.
+    const refLabel = (document.getElementById('refName') && document.getElementById('refName').textContent) ? document.getElementById('refName').textContent : 'reference';
+    const nameSpan = $('#texName');
+    if (nameSpan) nameSpan.textContent = `${refLabel} (applied)`;
+
+    // Clear any "use reference map" toggles so this remains a direct edit.
+    try {
+      const cb1 = document.getElementById('useRefMap');
+      const cb2 = document.getElementById('useRefMapTop');
+      if (cb1) cb1.checked = false;
+      if (cb2) cb2.checked = false;
+    } catch(e){}
+
+    state.srcIsMERS = true;
+    state.mappingOn = false;
+    if (state.copyRefChannels) {
+      state.copyRefChannels = { r: false, g: false, b: false, a: false };
+    }
+    setIdentitySlidersForEdit();
+
+    // Update slider UI to reflect identity defaults.
+    try {
+      const names = { r: 'Red • Metalness', g: 'Green • Emissive', b: 'Blue • Roughness', a: 'Alpha • SSS' };
+      const colors = { r: '#ef4444', g: '#10b981', b: '#3b82f6', a: '#a855f7' };
+      ['r','g','b','a'].forEach(ch => {
+        if (MERS.UIManager && typeof MERS.UIManager.buildChannelGroup === 'function') {
+          MERS.UIManager.buildChannelGroup(ch, names[ch], colors[ch]);
+        }
+      });
+    } catch(e){}
+
+    state.src = imgd;
+    MERS.ImageProcessor.drawInto($('#canvasSrc'), state.src);
+    const srcInfo = document.getElementById('srcInfo');
+    const dimInfo = document.getElementById('dimInfo');
+    if (srcInfo) srcInfo.textContent = `${w}×${h}`;
+    if (dimInfo) dimInfo.textContent = `${w}×${h}`;
+
+    MERS.PaintTool.initPaintLayer(w, h);
+    state.anim.w = w;
+    state.anim.h = h;
+    MERS.AnimationManager.updateFrameControls(w, h);
+    MERS.Core.rebuildRefColorMap();
+    MERS.Core.recompute();
+
+    // Fit nicely within the preview.
+    state.zoom = 0.87;
+    const zoomLabel = document.getElementById('zoomVal');
+    if (zoomLabel) zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
   }
 
   return {
     loadTexture,
-    loadReference
+    loadMersEdit,
+    loadReference,
+    applyReferenceToYour
   };
 })();
 
@@ -1978,6 +2162,13 @@ MERS.UIManager = (function() {
         sel.value = state.refMatch;
       }
     });
+
+    // Enable the "Apply reference" convenience button only when a reference is loaded.
+    const applyBtn = document.getElementById('applyRefToYour');
+    if (applyBtn) {
+      applyBtn.disabled = !state.ref;
+      applyBtn.style.opacity = state.ref ? '1' : '0.5';
+    }
   }
 
   function resetView() {
@@ -2015,13 +2206,27 @@ MERS.UIManager = (function() {
 
     // File pickers
     $('#pickTex').addEventListener('click', () => $('#fileTex').click());
+    $('#pickMers').addEventListener('click', () => $('#fileMers').click());
     $('#pickRef').addEventListener('click', () => $('#fileRef').click());
     $('#fileTex').addEventListener('change', e => {
       if (e.target.files[0]) MERS.FileManager.loadTexture(e.target.files[0]);
     });
+    $('#fileMers').addEventListener('change', e => {
+      if (e.target.files[0]) MERS.FileManager.loadMersEdit(e.target.files[0]);
+    });
     $('#fileRef').addEventListener('change', e => {
       if (e.target.files[0]) MERS.FileManager.loadReference(e.target.files[0]);
     });
+
+    // Convenience: bake the currently-loaded reference MERS into the editor for further edits.
+    const applyRefBtn = document.getElementById('applyRefToYour');
+    if (applyRefBtn) {
+      applyRefBtn.addEventListener('click', () => {
+        if (MERS.FileManager && typeof MERS.FileManager.applyReferenceToYour === 'function') {
+          MERS.FileManager.applyReferenceToYour();
+        }
+      });
+    }
 
     // Toggles
     ['useRefMap', 'useRefMapTop'].forEach(id => {
@@ -2527,6 +2732,8 @@ MERS.Core = (function() {
     const result = new ImageData(w, h);
     const S = state.src.data, R = result.data;
 
+    const srcIsMERS = !!state.srcIsMERS;
+
     const cmap = (state.mappingOn && state.refMapByColor && state.refMapByColor.map) ? state.refMapByColor.map : null;
     const byPixel = state.mappingOn && state.refMatch === 'pixel' && state.refRes ? true : false;
 
@@ -2539,6 +2746,10 @@ MERS.Core = (function() {
         const texGray = toGray(sr, sg, sb) / 255;
 
         let texR, texG, texB, texA;
+        // Priority order:
+        // 1) If ref mapping is enabled (pixel or by-color), use the reference.
+        // 2) Else if the source is already a MER/MERS texture, treat RGBA as MERS channels.
+        // 3) Else fall back to legacy grayscale-based conversion.
         if (byPixel) {
           const ref = state.refRes && state.refRes.data;
           const Ridx = i;
@@ -2563,6 +2774,11 @@ MERS.Core = (function() {
             texR = texG = texB = texGray;
             texA = sa / 255;
           }
+        } else if (srcIsMERS) {
+          texR = sr / 255;
+          texG = sg / 255;
+          texB = sb / 255;
+          texA = sa / 255;
         } else {
           texR = texG = texB = texGray;
           texA = sa / 255;
